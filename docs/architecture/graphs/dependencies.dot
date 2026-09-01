@@ -1,0 +1,57 @@
+digraph dependencies {
+  rankdir=LR;
+  labelloc=t;
+  label="Imports e spawns — side-notch";
+  node [shape=box, style=rounded];
+
+  shared_types [label="shared/types.ts"];
+  shared_layout [label="shared/layout.ts"];
+  shared_layout -> shared_types;
+
+  main [label="electron/main.ts"];
+  etypes [label="electron/types.ts"];
+  elayout [label="electron/layout.ts"];
+  collect [label="sources/collect.ts"];
+  notif [label="notifications.ts"];
+  cursor_src [label="CursorSource"];
+  claude_src [label="ClaudeSource"];
+  codex_src [label="CodexSource"];
+  reader [label="CursorReader"];
+  cmap [label="cursor-map.ts"];
+  which [label="which.ts"];
+  script [label="read-agents.mjs", shape=note];
+  app [label="src/App.tsx"];
+  shell [label="NotchShell"];
+  smodel [label="source-model.ts"];
+
+  etypes -> shared_types;
+  elayout -> shared_layout;
+  main -> etypes;
+  main -> elayout;
+  main -> collect;
+  main -> notif;
+  notif -> etypes;
+  collect -> cursor_src;
+  collect -> claude_src;
+  collect -> codex_src;
+  cursor_src -> reader;
+  cursor_src -> cmap;
+  cmap -> etypes;
+  reader -> cmap;
+  reader -> script [style=dashed, label="execFile"];
+  claude_src -> which;
+  claude_src -> etypes;
+  codex_src -> which;
+  codex_src -> etypes;
+
+  app -> shared_types;
+  app -> shared_layout;
+  app -> smodel;
+  smodel -> shared_types;
+  app -> shell;
+
+  npm_store [label="electron-store", shape=component];
+  npm_al [label="auto-launch", shape=component];
+  main -> npm_store [style=dashed];
+  main -> npm_al [style=dashed];
+}

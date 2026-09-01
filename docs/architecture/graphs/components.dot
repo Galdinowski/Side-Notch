@@ -1,0 +1,49 @@
+digraph components {
+  rankdir=TB;
+  labelloc=t;
+  label="Componentes — overlay e coleta";
+  node [shape=box, style=rounded];
+
+  subgraph cluster_main {
+    label="Main";
+    Main;
+    SourceHub;
+    NotificationHub;
+    CursorSource;
+    ClaudeSource;
+    CodexSource;
+    CursorReader;
+  }
+
+  subgraph cluster_ui {
+    label="Renderer";
+    App;
+    NotchShell;
+    CompactView;
+    PreviewView;
+    ExpandedView;
+    SourcePanel;
+    AgentCard;
+    ContextMeter;
+    IslandToast;
+  }
+
+  Main -> SourceHub;
+  Main -> NotificationHub;
+  SourceHub -> CursorSource;
+  SourceHub -> ClaudeSource;
+  SourceHub -> CodexSource;
+  CursorSource -> CursorReader;
+
+  App -> NotchShell;
+  NotchShell -> CompactView [style=dotted, label="child 0"];
+  NotchShell -> PreviewView [style=dotted, label="child 1"];
+  NotchShell -> ExpandedView [style=dotted, label="child 2"];
+  NotchShell -> IslandToast;
+  PreviewView -> SourcePanel;
+  ExpandedView -> SourcePanel;
+  SourcePanel -> AgentCard;
+  AgentCard -> ContextMeter;
+
+  Main -> App [style=dashed, label="IPC"];
+}

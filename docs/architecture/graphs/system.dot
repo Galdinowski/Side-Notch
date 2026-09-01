@@ -1,0 +1,42 @@
+digraph system {
+  rankdir=TB;
+  labelloc=t;
+  label="Side-notch — visão de sistema";
+  node [shape=box, style=rounded];
+
+  subgraph cluster_user {
+    label="Usuário Windows";
+    overlay [label="Overlay always-on-top"];
+    tray [label="Bandeja"];
+  }
+
+  subgraph cluster_app {
+    label="side-notch";
+    main [label="Electron main\nelectron/main.ts"];
+    preload [label="preload.cjs"];
+    renderer [label="React renderer\nsrc/"];
+    hub [label="SourceHub"];
+    notify [label="NotificationHub"];
+    store [label="electron-store"];
+  }
+
+  subgraph cluster_ext {
+    label="Estado de terceiros";
+    cursor [label="Cursor state.vscdb"];
+    claude [label="claude CLI"];
+    codex [label="~/.codex + WMI"];
+  }
+
+  overlay -> renderer;
+  tray -> main;
+  renderer -> preload [label="contextBridge"];
+  preload -> main [label="IPC"];
+  main -> hub;
+  main -> notify;
+  main -> store;
+  hub -> cursor [label="Node + read-agents.mjs"];
+  hub -> claude;
+  hub -> codex;
+  notify -> renderer [label="toast:show"];
+  hub -> renderer [label="sources:update"];
+}

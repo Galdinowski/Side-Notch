@@ -1,0 +1,35 @@
+digraph database {
+  rankdir=TB;
+  labelloc=t;
+  label="Dados — nenhum schema próprio; leitura externa";
+  node [shape=box, style=rounded];
+
+  script [label="read-agents.mjs"];
+  vscdb [label="state.vscdb", shape=cylinder];
+  headers [label="composerHeaders"];
+  kv [label="cursorDiskKV"];
+  ws [label="workspace.json", shape=note];
+  reader [label="CursorReader"];
+  cs [label="CursorSource"];
+
+  script -> vscdb;
+  vscdb -> headers;
+  vscdb -> kv;
+  script -> ws;
+  reader -> script;
+  cs -> reader;
+
+  codex [label="CodexSource"];
+  home [label="CODEX_HOME / ~/.codex", shape=folder];
+  idx [label="session_index.jsonl", shape=note];
+  sess [label="sessions/**/*.jsonl", shape=note];
+  locks [label="thread-writer-locks", shape=note];
+  codex -> home;
+  home -> idx;
+  home -> sess;
+  home -> locks;
+
+  store [label="electron-store JSON", shape=cylinder];
+  main [label="main.ts"];
+  main -> store;
+}

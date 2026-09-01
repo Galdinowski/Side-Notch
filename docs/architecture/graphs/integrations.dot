@@ -1,0 +1,22 @@
+digraph integrations {
+  rankdir=LR;
+  labelloc=t;
+  label="Integrações locais e de build";
+  node [shape=box, style=rounded];
+
+  app [label="side-notch"];
+
+  cursor [label="Cursor IDE"];
+  claude [label="Claude Code CLI"];
+  codex [label="Codex CLI state"];
+  win [label="Windows\n(tray, auto-launch, WMI, where)"];
+  fonts [label="Google Fonts CDN"];
+  eget [label="@electron/get"];
+
+  app -> cursor [label="SQLite RO"];
+  app -> claude [label="agents --json"];
+  app -> codex [label="JSONL + WMI"];
+  app -> win;
+  app -> fonts [label="index.html"];
+  app -> eget [label="dev setup"];
+}
