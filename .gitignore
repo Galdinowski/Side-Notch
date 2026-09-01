@@ -1,14 +1,47 @@
-# Dependencies
+# Dependências
 node_modules/
 
-# Environment
+# Build (Vite + Electron + electron-builder)
+dist/
+dist-electron/
+release/
+out/
+
+# Cache e artefatos de compilação
+.vite/
+*.tsbuildinfo
+.cache/
+
+# Variáveis de ambiente e secrets
 .env
 .env.*
+!.env.example
 
-# OS
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testes
+coverage/
+
+# Sistema operacional
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# IDE
+# Editores e IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+.cursor/
+
+# Electron / instaladores locais
+*.exe
+*.msi
+*.blockmap
+*.7z
