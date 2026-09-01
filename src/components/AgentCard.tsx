@@ -10,8 +10,7 @@ interface AgentCardProps {
 function formatTokens(percent: number): { used: string; limit: string } {
   const limit = 200_000;
   const used = Math.round((percent / 100) * limit);
-  const fmt = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
   return { used: fmt(used), limit: fmt(limit) };
 }
 
@@ -26,9 +25,10 @@ export function AgentCard({
   subagents = [],
   variant = "default",
 }: AgentCardProps) {
-  const tokens = formatTokens(agent.contextUsagePercent);
+  const percent = agent.contextUsagePercent;
+  const tokens = percent != null ? formatTokens(percent) : null;
   const isPreview = variant === "preview";
-  const percent = Math.round(agent.contextUsagePercent);
+  const rounded = percent != null ? Math.round(percent) : null;
 
   if (isPreview) {
     return (
@@ -45,9 +45,11 @@ export function AgentCard({
             aria-hidden="true"
           />
           <span className="task-row__name">{agent.name}</span>
-          <span className="task-row__percent">{percent}%</span>
+          <span className="task-row__percent">
+            {rounded != null ? `${rounded}%` : agent.hasBlockingPendingActions ? "ação" : "live"}
+          </span>
         </div>
-        <ContextMeter percent={agent.contextUsagePercent} />
+        {percent != null ? <ContextMeter percent={percent} /> : <div className="context-meter context-meter--ghost" />}
       </article>
     );
   }
@@ -73,37 +75,43 @@ export function AgentCard({
         </span>
       </div>
 
-      {agent.subtitle && (
-        <p className="agent-card__subtitle">{agent.subtitle}</p>
-      )}
+      {agent.subtitle ? <p className="agent-card__subtitle">{agent.subtitle}</p> : null}
 
-      <ContextMeter
-        percent={agent.contextUsagePercent}
-        usedLabel={tokens.used}
-        limitLabel={tokens.limit}
-        showLabels
-      />
+      {percent != null && tokens ? (
+        <ContextMeter
+          percent={percent}
+          usedLabel={tokens.used}
+          limitLabel={tokens.limit}
+          showLabels
+        />
+      ) : null}
 
       <div className="agent-card__meta">
-        <span>+{agent.linesAdded} / -{agent.linesRemoved}</span>
-        <span>{agent.filesChanged} arquivos</span>
-        {agent.hasBlockingPendingActions && (
+        {agent.linesAdded > 0 || agent.linesRemoved > 0 ? (
+          <span>
+            +{agent.linesAdded} / -{agent.linesRemoved}
+          </span>
+        ) : null}
+        {agent.filesChanged > 0 ? <span>{agent.filesChanged} arquivos</span> : null}
+        {agent.hasBlockingPendingActions ? (
           <span className="agent-card__blocking">Aguardando ação</span>
-        )}
+        ) : null}
       </div>
 
-      {subagents.length > 0 && (
+      {subagents.length > 0 ? (
         <div className="agent-card__subagents">
           {subagents.map((sub) => (
             <div key={sub.composerId} className="subagent-row">
               <span className="subagent-row__name">{sub.name}</span>
               <span className="subagent-row__percent">
-                {Math.round(sub.contextUsagePercent)}%
+                {sub.contextUsagePercent != null
+                  ? `${Math.round(sub.contextUsagePercent)}%`
+                  : ""}
               </span>
             </div>
           ))}
         </div>
-      )}
+      ) : null}
     </article>
   );
 }

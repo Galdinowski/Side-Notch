@@ -1,4 +1,4 @@
-import type { SourceAgentSnapshot } from "../types.js";
+import type { AgentSnapshot } from "../types.js";
 
 export interface RawCursorAgent {
   composerId: string;
@@ -16,7 +16,7 @@ export interface RawCursorAgent {
   filesChanged: number;
 }
 
-export function mapCursorAgent(raw: RawCursorAgent): SourceAgentSnapshot {
+export function mapCursorAgent(raw: RawCursorAgent): AgentSnapshot {
   return {
     source: "cursor",
     id: raw.composerId,

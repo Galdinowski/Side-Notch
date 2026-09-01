@@ -15,7 +15,6 @@ import { compactSize, sizeForMode } from "./layout.js";
 import { NotificationHub } from "./notifications.js";
 import { SourceHub } from "./sources/collect.js";
 import type {
-  AgentSnapshot,
   AppSettings,
   CommitBoundsOptions,
   NotchToast,
@@ -526,37 +525,14 @@ function createWindow(): void {
     if (!mainWindow || ignoreMoved || Date.now() < ignoreMovedUntil) return;
     rememberAnchorFromBounds(mainWindow.getBounds(), getDock());
     persistAnchor();
-    mainWindow.webContents.send("window:dragging");
   });
 }
 
-function sendToRenderer(
-  channel: "sources:update" | "agents:update" | "agents:error",
-  payload: unknown,
-): void {
+function sendToRenderer(channel: "sources:update", payload: SourcesPayload): void {
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
     return;
   }
   mainWindow.webContents.send(channel, payload);
-}
-
-function legacyAgents(payload: SourcesPayload): AgentSnapshot[] {
-  const cursor = payload.sources.find((source) => source.source === "cursor");
-  return (cursor?.agents ?? []).map((agent) => ({
-    composerId: agent.composerId,
-    workspaceId: agent.workspaceId,
-    workspacePath: agent.workspacePath,
-    name: agent.name,
-    subtitle: agent.subtitle,
-    contextUsagePercent: agent.contextUsagePercent ?? 0,
-    isRunning: agent.isRunning,
-    isSubagent: agent.isSubagent,
-    parentComposerId: agent.parentComposerId,
-    hasBlockingPendingActions: agent.hasBlockingPendingActions,
-    linesAdded: agent.linesAdded,
-    linesRemoved: agent.linesRemoved,
-    filesChanged: agent.filesChanged,
-  }));
 }
 
 async function collectSources(): Promise<SourcesPayload> {
@@ -564,7 +540,6 @@ async function collectSources(): Promise<SourcesPayload> {
   const payload: SourcesPayload = { sources, capturedAt: Date.now() };
   lastSources = payload;
   sendToRenderer("sources:update", payload);
-  sendToRenderer("agents:update", legacyAgents(payload));
   notifications.ingest(sources, store.store);
   if (currentMode === "compact" && Date.now() >= ignoreMovedUntil && !ignoreMoved) {
     applyBounds("compact", getDock());
@@ -594,7 +569,6 @@ function startPolling(): void {
     void pollSources().catch((error: unknown) => {
       const message = error instanceof Error ? error.message : "Unknown error";
       console.error("[side-notch] Failed to collect sources:", message);
-      sendToRenderer("agents:error", message);
     });
   }, store.get("pollIntervalMs"));
 }
@@ -777,15 +751,6 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("sources:refresh", () => pollSources());
-
-  ipcMain.handle("window:resize", async (_event, mode: ViewMode) => {
-    await commitMode(mode);
-  });
-
-  ipcMain.handle("agents:refresh", async () => {
-    const payload = await pollSources();
-    return legacyAgents(payload);
-  });
 }
 
 app.commandLine.appendSwitch(

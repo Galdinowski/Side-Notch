@@ -2,7 +2,6 @@ export type {
   SubagentInfo,
   ComposerHeaderValue,
   AgentSnapshot,
-  SourceAgentSnapshot,
   AppSettings,
   SideNotchAPI,
   ViewMode,

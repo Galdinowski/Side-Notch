@@ -28,24 +28,7 @@ export interface ComposerHeaderValue {
   filesChangedCount?: number;
 }
 
-/** Legacy renderer shape kept until the multi-source UI lands. */
 export interface AgentSnapshot {
-  composerId: string;
-  workspaceId: string;
-  workspacePath: string | null;
-  name: string;
-  subtitle: string;
-  contextUsagePercent: number;
-  isRunning: boolean;
-  isSubagent: boolean;
-  parentComposerId: string | null;
-  hasBlockingPendingActions: boolean;
-  linesAdded: number;
-  linesRemoved: number;
-  filesChanged: number;
-}
-
-export interface SourceAgentSnapshot {
   source: SourceId;
   id: string;
   composerId: string;
@@ -66,7 +49,7 @@ export interface SourceAgentSnapshot {
 export interface SourceSnapshot {
   source: SourceId;
   health: SourceHealth;
-  agents: SourceAgentSnapshot[];
+  agents: AgentSnapshot[];
   liveProcessCount: number;
 }
 
@@ -175,10 +158,13 @@ export interface CommitBoundsOptions {
 export interface SideNotchAPI {
   getSettings: () => Promise<AppSettings>;
   setSettings: (partial: Partial<AppSettings>) => Promise<AppSettings>;
-  resizeWindow: (mode: ViewMode) => Promise<void>;
-  refreshAgents: () => Promise<AgentSnapshot[]>;
-  onAgentsUpdate: (callback: (agents: AgentSnapshot[]) => void) => () => void;
-  onAgentsError: (callback: (message: string) => void) => () => void;
+  commitBounds: (mode: ViewMode, options?: CommitBoundsOptions) => Promise<WindowRect>;
+  moveWindow: (x: number, y: number) => void;
+  setMouseIgnore: (ignore: boolean) => void;
+  endDrag: () => void;
+  refreshSources: () => Promise<SourcesPayload>;
+  onSourcesUpdate: (callback: (payload: SourcesPayload) => void) => () => void;
   onDockChange: (callback: (dock: WidgetDock) => void) => () => void;
-  onWindowDragging: (callback: () => void) => () => void;
+  onRequestExpand: (callback: () => void) => () => void;
+  onToast: (callback: (toast: NotchToast) => void) => () => void;
 }

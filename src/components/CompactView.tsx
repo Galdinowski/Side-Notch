@@ -1,40 +1,83 @@
-export type WidgetStatus = "idle" | "processing" | "warning" | "error";
+import type { CompactSlot } from "../lib/source-model";
 
-interface CompactViewProps {
-  activeCount: number;
-  maxContext: number;
-  status: WidgetStatus;
+interface ChannelSlotProps {
+  slot: CompactSlot;
   layout: "island" | "side";
-  tooltip?: string;
 }
 
-export function CompactView({
-  activeCount,
-  maxContext,
-  status,
-  layout,
-  tooltip,
-}: CompactViewProps) {
-  const percent = Math.round(maxContext);
+function valueLabel(slot: CompactSlot): string {
+  if (slot.status === "error" || (slot.status === "warning" && slot.kind !== "meter")) {
+    return "!";
+  }
+  if (slot.kind === "meter" && slot.percent != null) {
+    return `${Math.round(slot.percent)}%`;
+  }
+  if (slot.kind === "presence") {
+    return slot.live ? "on" : "–";
+  }
+  return String(slot.count);
+}
+
+export function ChannelSlot({ slot, layout }: ChannelSlotProps) {
+  const fill =
+    slot.status === "error" || slot.status === "warning"
+      ? 100
+      : slot.kind === "meter" && slot.percent != null
+        ? Math.min(100, Math.max(0, slot.percent))
+        : slot.kind === "presence" && slot.live
+          ? 100
+          : slot.count > 0
+            ? 70
+            : 8;
 
   return (
     <div
-      className={`compact-view compact-view--${layout}`}
-      title={tooltip}
-      aria-label={tooltip ?? `${activeCount} tarefas, ${percent}% de contexto`}
+      className={`channel-slot channel-slot--${layout} channel-slot--${slot.source} channel-slot--${slot.status}`}
+      title={`${slot.label}: ${slot.detail}`}
     >
+      <span className="channel-slot__tick">{slot.tick}</span>
       <span
-        className={`status-indicator status-indicator--${status}${
-          activeCount > 0 && status === "idle" ? " status-indicator--active" : ""
+        className={`status-indicator status-indicator--${slot.status}${
+          slot.status === "idle" && slot.count > 0 ? " status-indicator--active" : ""
         }`}
         aria-hidden="true"
       />
-      <span className="compact-view__count" aria-hidden="true">
-        {status === "error" ? "!" : activeCount}
+      <span className="channel-slot__value">{valueLabel(slot)}</span>
+      <span className="channel-slot__meter" aria-hidden="true">
+        <span className="channel-slot__fill" style={{ width: `${fill}%` }} />
       </span>
-      <span className="compact-view__percent" aria-hidden="true">
-        {status === "error" ? "err" : `${percent}%`}
-      </span>
+    </div>
+  );
+}
+
+interface CompactViewProps {
+  slots: CompactSlot[];
+  layout: "island" | "side";
+  tooltip: string;
+}
+
+export function CompactView({ slots, layout, tooltip }: CompactViewProps) {
+  if (slots.length === 0) {
+    return (
+      <div
+        className={`compact-view compact-view--${layout} compact-view--dormant`}
+        title={tooltip}
+        aria-label={tooltip}
+      >
+        <span className="dormant-pip" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`compact-view compact-view--${layout} compact-view--n${slots.length}`}
+      title={tooltip}
+      aria-label={tooltip}
+    >
+      {slots.map((slot) => (
+        <ChannelSlot key={slot.source} slot={slot} layout={layout} />
+      ))}
     </div>
   );
 }
