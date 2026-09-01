@@ -11,5 +11,6 @@
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  "include": ["electron/main.ts", "electron/cursor-reader.ts", "electron/types.ts", "shared"]
+  "include": ["electron/**/*.ts", "shared"],
+  "exclude": ["electron/preload.ts"]
 }

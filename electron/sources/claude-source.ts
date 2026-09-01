@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { AgentSnapshot, SourceSnapshot } from "../types.js";
+import type { SourceAgentSnapshot, SourceSnapshot } from "../types.js";
 import { childEnv, which } from "../which.js";
 
 const execFileAsync = promisify(execFile);
@@ -32,7 +32,7 @@ function isClaudeActive(row: ClaudeAgentJson): boolean {
   return Boolean(row.pid);
 }
 
-function mapClaudeAgent(row: ClaudeAgentJson): AgentSnapshot {
+function mapClaudeAgent(row: ClaudeAgentJson): SourceAgentSnapshot {
   const blocked =
     Boolean(row.waitingFor) ||
     row.state === "blocked" ||

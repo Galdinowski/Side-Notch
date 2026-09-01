@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { AgentSnapshot, SourceSnapshot } from "../types.js";
+import type { SourceAgentSnapshot, SourceSnapshot } from "../types.js";
 import { childEnv } from "../which.js";
 
 const execFileAsync = promisify(execFile);
@@ -115,7 +115,7 @@ export class CodexSource {
     }
   }
 
-  private readActiveSessions(codexHome: string): AgentSnapshot[] {
+  private readActiveSessions(codexHome: string): SourceAgentSnapshot[] {
     const sessionsDir = path.join(codexHome, "sessions");
     if (!fs.existsSync(sessionsDir)) return [];
 
@@ -133,7 +133,7 @@ export class CodexSource {
       })
       .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
 
-    const agents: AgentSnapshot[] = [];
+    const agents: SourceAgentSnapshot[] = [];
     for (const { file } of files) {
       const session = this.readSession(file);
       if (!session?.active || !session.id) continue;
