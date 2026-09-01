@@ -35,8 +35,8 @@ export interface AgentSnapshot {
   filesChanged: number;
 }
 
-export type WidgetDock = "floating" | "left" | "right";
-export type ViewMode = "compact" | "preview" | "expanded";
+export type WidgetDock = "floating" | "left" | "right" | "top";
+export type ViewMode = "compact" | "preview" | "expanded" | "toast";
 
 export interface AppSettings {
   dock: WidgetDock;

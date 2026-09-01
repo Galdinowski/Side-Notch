@@ -33,12 +33,14 @@ const FLOAT_SIZES: Record<ViewMode, { width: number; height: number }> = {
   compact: { width: 172, height: 42 },
   preview: { width: 480, height: 280 },
   expanded: { width: 520, height: 420 },
+  toast: { width: 404, height: 120 },
 };
 
 const SIDE_SIZES: Record<ViewMode, { width: number; height: number }> = {
   compact: { width: 72, height: 124 },
   preview: { width: 420, height: 320 },
   expanded: { width: 500, height: 560 },
+  toast: { width: 320, height: 132 },
 };
 
 function getPreloadPath(): string {
