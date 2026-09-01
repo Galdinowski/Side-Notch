@@ -13,6 +13,9 @@ const store = new Store<AppSettings>({
     dock: "floating",
     launchOnStartup: false,
     pollIntervalMs: 1500,
+    notifyCursor: true,
+    notifyClaude: true,
+    notifyCodex: true,
   },
 });
 
