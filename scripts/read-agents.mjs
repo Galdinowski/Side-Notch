@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 const appData = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
 const stateDbPath = path.join(appData, "Cursor", "User", "globalStorage", "state.vscdb");
 const workspaceStorageDir = path.join(appData, "Cursor", "User", "workspaceStorage");
+const RUN_LOOKBACK_MS = 2 * 60 * 60 * 1000;
 
 const workspaceCache = new Map();
 
@@ -38,11 +39,44 @@ function resolveWorkspacePath(workspaceId) {
   }
 }
 
-function isActiveComposer(parsed) {
-  if (parsed.isArchived || parsed.isDraft) return false;
-  if (parsed.unfinishedRunAt != null) return true;
-  if (parsed.hasBlockingPendingActions) return true;
+function parseJson(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function groupingLooksLive(grouping) {
+  if (!grouping || typeof grouping !== "object") return false;
+  if (grouping.hasText || grouping.isKeptFinalAiVisibleOutsideWorkedForGroup) return false;
+  if (grouping.turnDurationMs != null) return false;
+  if (grouping.hasThinking && grouping.thinkingDurationMs == null) return true;
+  if (grouping.capabilityType != null || grouping.toolFormerTool != null) return true;
   return false;
+}
+
+function isComposerRunning(header, run) {
+  if (header.unfinishedRunAt != null || run?.unfinishedRunAt != null) return true;
+  if (run?.chatGenerationUUID) return true;
+  if (run?.isContinuationInProgress) return true;
+  const generating = parseJson(run?.generatingBubbleIds);
+  if (Array.isArray(generating) && generating.length > 0) return true;
+  const status = String(run?.status ?? "").toLowerCase();
+  if (status === "generating" || status === "running" || status === "in_progress") {
+    return true;
+  }
+  return groupingLooksLive(parseJson(run?.lastGrouping));
+}
+
+function pickNumber(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
 }
 
 function getActiveAgents() {
@@ -55,12 +89,32 @@ function getActiveAgents() {
   try {
     const rows = db
       .prepare(
-        `SELECT composerId, workspaceId, isSubagent, value
+        `SELECT composerId, workspaceId, isSubagent, checkpointAt, lastUpdatedAt, recency, value
          FROM composerHeaders
          WHERE isArchived = 0`,
       )
       .all();
 
+    const runStmt = db.prepare(
+      `SELECT
+         json_extract(value, '$.status') as status,
+         json_extract(value, '$.chatGenerationUUID') as chatGenerationUUID,
+         json_extract(value, '$.unfinishedRunAt') as unfinishedRunAt,
+         json_extract(value, '$.isContinuationInProgress') as isContinuationInProgress,
+         json_extract(value, '$.generatingBubbleIds') as generatingBubbleIds,
+         json_extract(value, '$.hasBlockingPendingActions') as hasBlockingPendingActions,
+         json_extract(value, '$.contextUsagePercent') as contextUsagePercent,
+         json_extract(value, '$.name') as name,
+         json_extract(value, '$.subtitle') as subtitle,
+         json_extract(value, '$.totalLinesAdded') as totalLinesAdded,
+         json_extract(value, '$.totalLinesRemoved') as totalLinesRemoved,
+         json_extract(value, '$.filesChangedCount') as filesChangedCount,
+         json_extract(value, '$.fullConversationHeadersOnly[#-1].grouping') as lastGrouping
+       FROM cursorDiskKV
+       WHERE key = ?`,
+    );
+
+    const now = Date.now();
     const agents = [];
 
     for (const row of rows) {
@@ -71,22 +125,42 @@ function getActiveAgents() {
         continue;
       }
 
-      if (!isActiveComposer(parsed)) continue;
+      if (parsed.isArchived || parsed.isDraft) continue;
+
+      const checkpoint = pickNumber(
+        row.checkpointAt,
+        parsed.conversationCheckpointLastUpdatedAt,
+        row.lastUpdatedAt,
+        parsed.lastUpdatedAt,
+        row.recency,
+      );
+      const shouldLoadRun =
+        parsed.unfinishedRunAt != null ||
+        parsed.hasBlockingPendingActions ||
+        (checkpoint > 0 && now - checkpoint < RUN_LOOKBACK_MS);
+
+      const run = shouldLoadRun ? (runStmt.get(`composerData:${row.composerId}`) ?? null) : null;
+      const isRunning = isComposerRunning(parsed, run);
+      const hasBlockingPendingActions = Boolean(
+        parsed.hasBlockingPendingActions || run?.hasBlockingPendingActions,
+      );
+
+      if (!isRunning && !hasBlockingPendingActions) continue;
 
       agents.push({
         composerId: row.composerId,
         workspaceId: row.workspaceId,
         workspacePath: resolveWorkspacePath(row.workspaceId),
-        name: parsed.name || "Untitled agent",
-        subtitle: parsed.subtitle || "Working...",
-        contextUsagePercent: Number(parsed.contextUsagePercent) || 0,
-        isRunning: parsed.unfinishedRunAt != null,
+        name: run?.name || parsed.name || "Untitled agent",
+        subtitle: run?.subtitle || parsed.subtitle || "Working...",
+        contextUsagePercent: pickNumber(run?.contextUsagePercent, parsed.contextUsagePercent),
+        isRunning,
         isSubagent: row.isSubagent === 1,
         parentComposerId: parsed.subagentInfo?.parentComposerId ?? null,
-        hasBlockingPendingActions: parsed.hasBlockingPendingActions ?? false,
-        linesAdded: parsed.totalLinesAdded ?? 0,
-        linesRemoved: parsed.totalLinesRemoved ?? 0,
-        filesChanged: parsed.filesChangedCount ?? 0,
+        hasBlockingPendingActions,
+        linesAdded: pickNumber(run?.totalLinesAdded, parsed.totalLinesAdded),
+        linesRemoved: pickNumber(run?.totalLinesRemoved, parsed.totalLinesRemoved),
+        filesChanged: pickNumber(run?.filesChangedCount, parsed.filesChangedCount),
       });
     }
 
