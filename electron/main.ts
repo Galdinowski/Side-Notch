@@ -8,10 +8,21 @@ import {
   nativeImage,
 } from "electron";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import Store from "electron-store";
 import AutoLaunch from "auto-launch";
-import { compactSize, sizeForMode } from "./layout.js";
+import {
+  centerOnWorkArea,
+  clamp,
+  compactAnchorFromBounds,
+  compactSize,
+  fitInWork,
+  isCornerDock,
+  positionForSize as dockedPosition,
+  resolveDock,
+  sizeForMode,
+} from "./layout.js";
 import { NotificationHub } from "./notifications.js";
 import { SourceHub } from "./sources/collect.js";
 import type {
@@ -23,7 +34,7 @@ import type {
   WidgetDock,
   WindowRect,
 } from "./types.js";
-import { healthLine, inUseSources, panelSources } from "./types.js";
+import { healthLine, inUseSources, isWidgetDock, visibleSources, panelSources } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +58,7 @@ let pollTimer: NodeJS.Timeout | null = null;
 let pollInFlight: Promise<SourcesPayload> | null = null;
 let currentMode: ViewMode = "compact";
 let lastSources: SourcesPayload | null = null;
+let lastSourcesFingerprint = "";
 let lastAppliedSize = { width: 0, height: 0 };
 let loggedHealth = false;
 let ignoreMoved = false;
@@ -54,9 +66,9 @@ let compactAnchor = { x: 0, y: 0 };
 let visitSlotCount = 1;
 
 const isDev = !app.isPackaged;
-const SNAP_IN = 28;
-const SNAP_OUT = 48;
+const POLL_IDLE_MS = 6000;
 let ignoreMovedUntil = 0;
+let isQuitting = false;
 
 function getPreloadPath(): string {
   return path.join(__dirname, "preload.cjs");
@@ -64,6 +76,35 @@ function getPreloadPath(): string {
 
 function getIndexHtmlPath(): string {
   return path.join(app.getAppPath(), "dist", "index.html");
+}
+
+function resolveAsset(...parts: string[]): string | null {
+  const candidates = [
+    path.join(app.getAppPath(), ...parts),
+    path.join(__dirname, "..", "..", ...parts),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function trayImage(): Electron.NativeImage {
+  const png = resolveAsset("public", "icon.png");
+  if (png) {
+    const image = nativeImage.createFromPath(png);
+    if (!image.isEmpty()) return image.resize({ width: 16, height: 16 });
+  }
+  return nativeImage.createEmpty();
+}
+
+function showOverlay(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
 }
 
 function loadRenderer(window: BrowserWindow): void {
@@ -75,12 +116,13 @@ function loadRenderer(window: BrowserWindow): void {
 }
 
 function getDock(): WidgetDock {
-  return store.get("dock") ?? "floating";
+  const dock = store.get("dock");
+  return isWidgetDock(dock) ? dock : "floating";
 }
 
 function compactSlotCount(): number {
   if (!lastSources) return 0;
-  return inUseSources(lastSources.sources).length;
+  return visibleSources(lastSources.sources).length;
 }
 
 function panelCount(): number {
@@ -91,10 +133,6 @@ function panelCount(): number {
 function slotCount(mode: ViewMode = currentMode): number {
   if (mode === "compact") return compactSlotCount();
   return visitSlotCount;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function workAreaAtRect(rect: Electron.Rectangle): Electron.Rectangle {
@@ -110,62 +148,6 @@ function workAreaForWindow(): Electron.Rectangle {
   return workAreaAtRect(mainWindow.getBounds());
 }
 
-function centerOnWorkArea(
-  size: { width: number; height: number },
-  work: Electron.Rectangle,
-): { x: number; y: number } {
-  return {
-    x: Math.round(work.x + (work.width - size.width) / 2),
-    y: Math.round(work.y + (work.height - size.height) / 2),
-  };
-}
-
-function edgeDistances(
-  bounds: Electron.Rectangle,
-  work: Electron.Rectangle,
-): { left: number; right: number; top: number } {
-  return {
-    left: bounds.x - work.x,
-    right: work.x + work.width - (bounds.x + bounds.width),
-    top: bounds.y - work.y,
-  };
-}
-
-function closestSnap(
-  distances: { left: number; right: number; top: number },
-): WidgetDock {
-  const candidates: { dock: WidgetDock; dist: number }[] = [];
-  if (distances.left <= SNAP_IN) candidates.push({ dock: "left", dist: distances.left });
-  if (distances.right <= SNAP_IN) candidates.push({ dock: "right", dist: distances.right });
-  if (distances.top <= SNAP_IN) candidates.push({ dock: "top", dist: distances.top });
-  if (candidates.length === 0) return "floating";
-  candidates.sort((a, b) => a.dist - b.dist);
-  return candidates[0]?.dock ?? "floating";
-}
-
-function resolveDock(
-  bounds: Electron.Rectangle,
-  work: Electron.Rectangle,
-  current: WidgetDock,
-): WidgetDock {
-  const distances = edgeDistances(bounds, work);
-  const { left, right, top } = distances;
-
-  if (current === "left") {
-    return left <= SNAP_OUT ? "left" : closestSnap(distances);
-  }
-  if (current === "right") {
-    return right <= SNAP_OUT ? "right" : closestSnap(distances);
-  }
-  if (current === "top") {
-    if (top > SNAP_OUT) return closestSnap(distances);
-    if (left <= SNAP_IN && left < top) return "left";
-    if (right <= SNAP_IN && right < top) return "right";
-    return "top";
-  }
-  return closestSnap(distances);
-}
-
 function suppressMoved(ms = 450): void {
   ignoreMovedUntil = Date.now() + ms;
 }
@@ -179,34 +161,16 @@ function sendDock(dock: WidgetDock): void {
   mainWindow?.webContents.send("dock:update", dock);
 }
 
-function fitInWork(
-  x: number,
-  y: number,
-  size: { width: number; height: number },
-  work: Electron.Rectangle,
-): { x: number; y: number } {
-  return {
-    x: clamp(x, work.x, work.x + work.width - size.width),
-    y: clamp(y, work.y, work.y + work.height - size.height),
-  };
-}
-
 function rememberAnchorFromBounds(
   bounds: Electron.Rectangle,
   dock: WidgetDock,
 ): void {
-  const compact = compactSize(dock, compactSlotCount());
-  if (dock === "left" || dock === "right" || dock === "top") {
-    compactAnchor = { x: bounds.x, y: bounds.y };
-    return;
-  }
-  compactAnchor = {
-    x: Math.round(bounds.x + bounds.width / 2 - compact.width / 2),
-    y: Math.round(bounds.y + bounds.height / 2 - compact.height / 2),
-  };
+  compactAnchor = compactAnchorFromBounds(
+    bounds,
+    dock,
+    compactSize(dock, compactSlotCount()),
+  );
 }
-
-const EDGE_GROW = 72;
 
 function positionForSize(
   size: { width: number; height: number },
@@ -214,77 +178,12 @@ function positionForSize(
   work: Electron.Rectangle,
   options?: { center?: boolean },
 ): { x: number; y: number } {
-  if (options?.center) {
-    return centerOnWorkArea(size, work);
-  }
-
-  const prevW =
-    lastAppliedSize.width > 0
-      ? lastAppliedSize.width
-      : compactSize(dock, compactSlotCount()).width;
-  const prevH =
-    lastAppliedSize.height > 0
-      ? lastAppliedSize.height
-      : compactSize(dock, compactSlotCount()).height;
-
-  if (dock === "left") {
-    return {
-      x: work.x,
-      y: clamp(compactAnchor.y, work.y, work.y + work.height - size.height),
-    };
-  }
-  if (dock === "right") {
-    return {
-      x: work.x + work.width - size.width,
-      y: clamp(compactAnchor.y, work.y, work.y + work.height - size.height),
-    };
-  }
-  if (dock === "top") {
-    const centerX = compactAnchor.x + prevW / 2;
-    return {
-      x: clamp(
-        Math.round(centerX - size.width / 2),
-        work.x,
-        work.x + work.width - size.width,
-      ),
-      y: work.y,
-    };
-  }
-
-  const ax = compactAnchor.x;
-  const ay = compactAnchor.y;
-  const distTop = ay - work.y;
-  const distLeft = ax - work.x;
-  const distRight = work.x + work.width - (ax + prevW);
-  const distBottom = work.y + work.height - (ay + prevH);
-
-  let x: number;
-  if (distLeft <= SNAP_IN && distLeft <= distRight) {
-    x = ax;
-  } else if (distRight <= SNAP_IN) {
-    x = ax + prevW - size.width;
-  } else if (distLeft <= EDGE_GROW && distLeft <= distRight) {
-    x = ax;
-  } else if (distRight <= EDGE_GROW) {
-    x = ax + prevW - size.width;
-  } else {
-    x = Math.round(ax + prevW / 2 - size.width / 2);
-  }
-
-  let y: number;
-  if (distTop <= SNAP_IN && distTop <= distBottom) {
-    y = ay;
-  } else if (distBottom <= SNAP_IN) {
-    y = ay + prevH - size.height;
-  } else if (distTop <= EDGE_GROW && distTop <= distBottom) {
-    y = ay;
-  } else if (distBottom <= EDGE_GROW) {
-    y = ay + prevH - size.height;
-  } else {
-    y = Math.round(ay + prevH / 2 - size.height / 2);
-  }
-
-  return fitInWork(x, y, size, work);
+  const fallback = compactSize(dock, compactSlotCount());
+  const prevSize = {
+    width: lastAppliedSize.width > 0 ? lastAppliedSize.width : fallback.width,
+    height: lastAppliedSize.height > 0 ? lastAppliedSize.height : fallback.height,
+  };
+  return dockedPosition(size, dock, work, compactAnchor, prevSize, options);
 }
 
 function applyBounds(
@@ -341,13 +240,10 @@ function setDock(
 
   if (options?.layoutOnly) return;
 
-  if (dock === "top" && !options?.center) {
+  if (!options?.center && (dock === "top" || isCornerDock(dock))) {
     const work = workAreaForWindow();
     const size = sizeForMode(currentMode, dock, slotCount(), work.height);
-    compactAnchor = {
-      x: Math.round(work.x + (work.width - size.width) / 2),
-      y: work.y,
-    };
+    compactAnchor = dockedPosition(size, dock, work, compactAnchor, size);
   }
 
   applyBounds(currentMode, dock, options);
@@ -358,7 +254,7 @@ function commitMode(mode: ViewMode, options?: CommitBoundsOptions): WindowRect {
   if (mode === "compact") {
     visitSlotCount = panelCount();
   } else if (options?.slotCount != null) {
-    visitSlotCount = Math.max(1, options.slotCount);
+    visitSlotCount = Math.max(0, options.slotCount);
   } else {
     visitSlotCount = panelCount();
   }
@@ -381,16 +277,23 @@ function moveWindowTo(x: number, y: number): void {
 
   let ax = x;
   let ay = y;
-  if (nextDock === "left") ax = work.x;
-  else if (nextDock === "right") ax = work.x + work.width - size.width;
-  else if (nextDock === "top") {
+  if (nextDock === "left" || nextDock === "bottom-left") ax = work.x;
+  else if (nextDock === "right" || nextDock === "bottom-right") {
+    ax = work.x + work.width - size.width;
+  } else if (nextDock === "top") {
     ay = work.y;
     if (currentDock !== "top") {
       ax = Math.round(work.x + (work.width - size.width) / 2);
     }
   }
+  if (nextDock === "bottom-left" || nextDock === "bottom-right") {
+    ay = work.y + work.height - size.height;
+  }
   ({ x: ax, y: ay } = fitInWork(ax, ay, size, work));
   if (nextDock === "top") ay = work.y;
+  if (nextDock === "bottom-left" || nextDock === "bottom-right") {
+    ay = work.y + work.height - size.height;
+  }
 
   suppressMoved(80);
   ignoreMoved = true;
@@ -467,6 +370,12 @@ function createWindow(): void {
       ? clamp(storedX, work.x, work.x + work.width - size.width)
       : Math.round(work.x + (work.width - size.width) / 2);
     y = work.y;
+  } else if (dock === "bottom-left") {
+    x = work.x;
+    y = work.y + work.height - size.height;
+  } else if (dock === "bottom-right") {
+    x = work.x + work.width - size.width;
+    y = work.y + work.height - size.height;
   } else {
     ({ x, y } = centerOnWorkArea(size, work));
   }
@@ -512,6 +421,17 @@ function createWindow(): void {
     mainWindow?.show();
   });
 
+  mainWindow.on("close", (event) => {
+    if (!isQuitting && process.platform === "win32") {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error("[side-notch] renderer gone", details.reason, details.exitCode);
     if (details.reason === "clean-exit") return;
@@ -539,10 +459,19 @@ async function collectSources(): Promise<SourcesPayload> {
   const sources = await sourceHub.collect();
   const payload: SourcesPayload = { sources, capturedAt: Date.now() };
   lastSources = payload;
+  const fingerprint = JSON.stringify(sources);
+  if (fingerprint === lastSourcesFingerprint) return payload;
+  lastSourcesFingerprint = fingerprint;
   sendToRenderer("sources:update", payload);
   notifications.ingest(sources, store.store);
   if (currentMode === "compact" && Date.now() >= ignoreMovedUntil && !ignoreMoved) {
-    applyBounds("compact", getDock());
+    const nextSize = sizeForMode("compact", getDock(), compactSlotCount(), workAreaForWindow().height);
+    if (
+      nextSize.width !== lastAppliedSize.width ||
+      nextSize.height !== lastAppliedSize.height
+    ) {
+      applyBounds("compact", getDock());
+    }
   }
   const line = healthLine(sources);
   tray?.setToolTip(`Side-notch · ${line}`);
@@ -563,14 +492,39 @@ async function pollSources(): Promise<SourcesPayload> {
   }
 }
 
+function pollDelayMs(sources: SourcesPayload["sources"]): number {
+  const active = store.get("pollIntervalMs") ?? 1500;
+  return inUseSources(sources).length > 0 ? active : POLL_IDLE_MS;
+}
+
+function stopPolling(): void {
+  if (!pollTimer) return;
+  clearTimeout(pollTimer);
+  pollTimer = null;
+}
+
+function scheduleNextPoll(sources: SourcesPayload["sources"]): void {
+  stopPolling();
+  pollTimer = setTimeout(() => {
+    pollTimer = null;
+    void runPollLoop();
+  }, pollDelayMs(sources));
+}
+
+async function runPollLoop(): Promise<void> {
+  try {
+    const payload = await pollSources();
+    scheduleNextPoll(payload.sources);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[side-notch] Failed to collect sources:", message);
+    scheduleNextPoll(lastSources?.sources ?? []);
+  }
+}
+
 function startPolling(): void {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(() => {
-    void pollSources().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      console.error("[side-notch] Failed to collect sources:", message);
-    });
-  }, store.get("pollIntervalMs"));
+  stopPolling();
+  void runPollLoop();
 }
 
 function buildTrayMenu(): Electron.Menu {
@@ -599,6 +553,18 @@ function buildTrayMenu(): Electron.Menu {
       type: "radio",
       checked: dock === "top",
       click: () => setDock("top"),
+    },
+    {
+      label: "Encostar no canto inferior esquerdo",
+      type: "radio",
+      checked: dock === "bottom-left",
+      click: () => setDock("bottom-left"),
+    },
+    {
+      label: "Encostar no canto inferior direito",
+      type: "radio",
+      checked: dock === "bottom-right",
+      click: () => setDock("bottom-right"),
     },
     {
       label: "Flutuante",
@@ -653,12 +619,11 @@ function refreshTrayMenu(): void {
 }
 
 function createTray(): void {
-  const icon = nativeImage.createFromDataURL(
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-  );
-
-  tray = new Tray(icon);
+  tray = new Tray(trayImage());
   tray.setToolTip("Side-notch");
+  tray.on("click", () => {
+    showOverlay();
+  });
   refreshTrayMenu();
 }
 
@@ -803,7 +768,9 @@ if (!gotTheLock) {
   });
 
   app.on("before-quit", () => {
-    if (pollTimer) clearInterval(pollTimer);
+    isQuitting = true;
+    stopPolling();
+    sourceHub.dispose();
     notifications.reset();
   });
 }

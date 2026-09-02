@@ -3,21 +3,23 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("sideNotch", {
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setSettings: (partial) => ipcRenderer.invoke("settings:set", partial),
-  resizeWindow: (mode) => ipcRenderer.invoke("window:resize", mode),
-  refreshAgents: () => ipcRenderer.invoke("agents:refresh"),
-  onAgentsUpdate: (callback) => {
-    const listener = (_event, agents) => {
-      callback(agents);
-    };
-    ipcRenderer.on("agents:update", listener);
-    return () => ipcRenderer.removeListener("agents:update", listener);
+  commitBounds: (mode, options) => ipcRenderer.invoke("window:commit-bounds", mode, options),
+  moveWindow: (x, y) => {
+    ipcRenderer.send("window:move", x, y);
   },
-  onAgentsError: (callback) => {
-    const listener = (_event, message) => {
-      callback(message);
+  setMouseIgnore: (ignore) => {
+    ipcRenderer.send("window:mouse-ignore", ignore);
+  },
+  endDrag: () => {
+    ipcRenderer.send("window:end-drag");
+  },
+  refreshSources: () => ipcRenderer.invoke("sources:refresh"),
+  onSourcesUpdate: (callback) => {
+    const listener = (_event, payload) => {
+      callback(payload);
     };
-    ipcRenderer.on("agents:error", listener);
-    return () => ipcRenderer.removeListener("agents:error", listener);
+    ipcRenderer.on("sources:update", listener);
+    return () => ipcRenderer.removeListener("sources:update", listener);
   },
   onDockChange: (callback) => {
     const listener = (_event, dock) => {
@@ -26,11 +28,18 @@ contextBridge.exposeInMainWorld("sideNotch", {
     ipcRenderer.on("dock:update", listener);
     return () => ipcRenderer.removeListener("dock:update", listener);
   },
-  onWindowDragging: (callback) => {
+  onRequestExpand: (callback) => {
     const listener = () => {
       callback();
     };
-    ipcRenderer.on("window:dragging", listener);
-    return () => ipcRenderer.removeListener("window:dragging", listener);
+    ipcRenderer.on("view:expand", listener);
+    return () => ipcRenderer.removeListener("view:expand", listener);
+  },
+  onToast: (callback) => {
+    const listener = (_event, toast) => {
+      callback(toast);
+    };
+    ipcRenderer.on("toast:show", listener);
+    return () => ipcRenderer.removeListener("toast:show", listener);
   },
 });
