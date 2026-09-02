@@ -23,7 +23,7 @@ export function IslandToast({ toast }: IslandToastProps) {
   const remaining = toast.events.length - events.length;
 
   return (
-    <div className="island-toast" data-no-drag>
+    <div className="island-toast">
       <header className="island-toast__header">
         <span className="island-toast__eyebrow">ATIVIDADE</span>
         <span className="island-toast__count">

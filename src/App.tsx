@@ -3,17 +3,18 @@ import { NotchShell } from "./components/NotchShell";
 import { CompactView } from "./components/CompactView";
 import { PreviewView } from "./components/PreviewView";
 import { ExpandedView } from "./components/ExpandedView";
-import type { AppSettings, NotchToast, SourcesPayload, ViewMode, WidgetDock } from "../shared/types";
-import { healthLine, inUseSources, panelSources } from "../shared/types";
+import type { AgentSnapshot, AppSettings, NotchToast, SourceId, SourcesPayload, ViewMode, WidgetDock } from "../shared/types";
+import { healthLine, isWidgetDock, panelSources, visibleSources } from "../shared/types";
 import { compactSize, isHorizontalDock, pillSizeForWindow, sizeForMode } from "../shared/layout";
-import { toCompactSlots } from "./lib/source-model";
+import { overallStatus, toCompactSlots } from "./lib/source-model";
 import {
   MORPH,
   morphDuration,
   morphKind,
   pillMode,
+  slotCountForPill,
   type MotionState,
-} from "./lib/motion";
+} from "../shared/motion";
 
 const NOTIFICATION_PRIORITY = {
   action: 0,
@@ -25,8 +26,58 @@ function workHeight(): number {
   return window.screen.availHeight || 1080;
 }
 
+function dockFromQuery(): WidgetDock | null {
+  const value = new URLSearchParams(window.location.search).get("dock");
+  return isWidgetDock(value) ? value : null;
+}
+
+function initialDock(): WidgetDock {
+  if (window.sideNotch) return "floating";
+  return dockFromQuery() ?? "top";
+}
+
 function fingerprint(payload: SourcesPayload): string {
   return JSON.stringify(payload.sources);
+}
+
+function demoAgent(source: SourceId, name: string): AgentSnapshot {
+  return {
+    source,
+    id: `demo-${source}`,
+    composerId: `demo-${source}`,
+    workspaceId: "ws",
+    workspacePath: null,
+    name,
+    subtitle: "Em execução",
+    contextUsagePercent: source === "cursor" ? 42 : null,
+    isRunning: true,
+    isSubagent: false,
+    parentComposerId: null,
+    hasBlockingPendingActions: false,
+    linesAdded: 8,
+    linesRemoved: 2,
+    filesChanged: 1,
+  };
+}
+
+function demoAgentsPayload(): SourcesPayload {
+  return {
+    capturedAt: Date.now(),
+    sources: [
+      {
+        source: "cursor",
+        health: { status: "ok" },
+        agents: [demoAgent("cursor", "Refactor")],
+        liveProcessCount: 0,
+      },
+      {
+        source: "claude",
+        health: { status: "ok" },
+        agents: [demoAgent("claude", "Review")],
+        liveProcessCount: 0,
+      },
+    ],
+  };
 }
 
 export default function App() {
@@ -35,17 +86,20 @@ export default function App() {
   const [motion, setMotion] = useState<MotionState>("compact");
   const [pinned, setPinned] = useState(false);
   const [toast, setToast] = useState<NotchToast | null>(null);
-  const [pillSize, setPillSize] = useState(() =>
-    pillSizeForWindow(compactSize("floating", 0), "floating"),
-  );
+  const [pillSize, setPillSize] = useState(() => {
+    const startDock = initialDock();
+    return pillSizeForWindow(compactSize(startDock, 0), startDock);
+  });
 
   const motionRef = useRef<MotionState>("compact");
   const pinnedRef = useRef(false);
   const hoveredRef = useRef(false);
+  const hoverArmedRef = useRef(true);
   const focusedRef = useRef(false);
   const draggingRef = useRef(false);
   const dockRef = useRef<WidgetDock>("floating");
   const visitSlotsRef = useRef(1);
+  const compactSlotsRef = useRef(0);
   const boundsGenRef = useRef(0);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const morphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,10 +111,11 @@ export default function App() {
 
   const sources = payload?.sources ?? [];
   sourcesRef.current = sources;
-  const dock: WidgetDock = settings?.dock ?? (window.sideNotch ? "floating" : "top");
+  const dock: WidgetDock = settings?.dock ?? (window.sideNotch ? "floating" : initialDock());
   dockRef.current = dock;
   const panels = useMemo(() => panelSources(sources), [sources]);
   const slots = useMemo(() => toCompactSlots(sources), [sources]);
+  compactSlotsRef.current = slots.length;
   const tooltip = useMemo(
     () => (sources.length ? healthLine(sources) : "Side-notch"),
     [sources],
@@ -105,15 +160,19 @@ export default function App() {
       setMotion(next);
 
       if (next === "expanding" && prev === "compact") {
-        visitSlotsRef.current = Math.max(1, panelSources(sourcesRef.current).length);
+        visitSlotsRef.current = panelSources(sourcesRef.current).length;
       }
       if (next === "pinning" && (prev === "compact" || prev === "expanding" || prev === "collapsing")) {
-        visitSlotsRef.current = Math.max(1, panelSources(sourcesRef.current).length);
+        visitSlotsRef.current = panelSources(sourcesRef.current).length;
       }
 
       const nextPill = pillMode(next);
       const kind = morphKind(next);
-      syncPill(nextPill, dockRef.current, visitSlotsRef.current);
+      syncPill(
+        nextPill,
+        dockRef.current,
+        slotCountForPill(nextPill, compactSlotsRef.current, visitSlotsRef.current),
+      );
 
       if (kind === "expand") {
         commitWindow(nextPill, gen);
@@ -135,7 +194,7 @@ export default function App() {
       } else if (next === "toasting") {
         morphTimerRef.current = setTimeout(() => finish("toast"), duration);
       } else if (next === "collapsing") {
-        morphTimerRef.current = setTimeout(() => finish("compact", "compact"), duration);
+        morphTimerRef.current = setTimeout(() => finish("compact"), duration);
       } else if (next === "unpinning") {
         morphTimerRef.current = setTimeout(() => finish("preview", "preview"), duration);
       }
@@ -270,16 +329,23 @@ export default function App() {
       payloadKeyRef.current = key;
       reconcileToast(next.sources);
       setPayload(next);
+      const mode = pillMode(motionRef.current);
+      if (mode === "compact") return;
+      visitSlotsRef.current = panelSources(next.sources).length;
+      const gen = ++boundsGenRef.current;
+      syncPill(mode, dockRef.current, visitSlotsRef.current);
+      commitWindow(mode, gen);
     });
     const unsubDock = window.sideNotch.onDockChange((next) => {
       dockRef.current = next;
       setSettings((prev) => (prev ? { ...prev, dock: next } : prev));
-      syncPill(pillMode(motionRef.current), next, visitSlotsRef.current);
+      const mode = pillMode(motionRef.current);
+      syncPill(mode, next, slotCountForPill(mode, compactSlotsRef.current, visitSlotsRef.current));
     });
     const unsubExpand = window.sideNotch.onRequestExpand(() => {
       pinnedRef.current = true;
       setPinned(true);
-      visitSlotsRef.current = Math.max(1, panelSources(sourcesRef.current).length);
+      visitSlotsRef.current = panelSources(sourcesRef.current).length;
       go("pinning");
     });
     const unsubToast = window.sideNotch.onToast((next) => {
@@ -299,7 +365,16 @@ export default function App() {
       unsubExpand?.();
       unsubToast?.();
     };
-  }, [go, presentToast, reconcileToast, syncPill]);
+  }, [commitWindow, go, presentToast, reconcileToast, syncPill]);
+
+  useEffect(() => {
+    if (window.sideNotch) return;
+    const params = new URLSearchParams(window.location.search);
+    const previewDock = params.get("dock");
+    if (previewDock === "left" || previewDock === "right" || params.get("demo") === "agents") {
+      setPayload(demoAgentsPayload());
+    }
+  }, []);
 
   useEffect(() => {
     if (window.sideNotch) return;
@@ -356,11 +431,10 @@ export default function App() {
 
   useEffect(() => {
     const mode = pillMode(motion);
-    const count = mode === "compact" ? slots.length : visitSlotsRef.current;
+    const count = slotCountForPill(mode, slots.length, visitSlotsRef.current);
     syncPill(mode, dock, count);
-    if (mode !== "compact") return;
-    // An event effect can advance the ref before this render's effects finish.
-    if (pillMode(motionRef.current) !== "compact") return;
+    if (motion !== "compact") return;
+    if (motionRef.current !== "compact") return;
     const gen = ++boundsGenRef.current;
     commitWindow("compact", gen);
   }, [slots.length, dock, motion, commitWindow, syncPill]);
@@ -372,17 +446,19 @@ export default function App() {
       leaveTimerRef.current = null;
     }
     window.sideNotch?.setMouseIgnore(false);
+    if (!hoverArmedRef.current) return;
     if (draggingRef.current || pinnedRef.current) return;
     const current = motionRef.current;
     if (current === "toast" || current === "toasting") return;
-    if (inUseSources(sourcesRef.current).length === 0) return;
-    if (current === "compact" || current === "collapsing") {
+    if (visibleSources(sourcesRef.current).length === 0) return;
+    if (current === "compact") {
       go("expanding");
     }
   }, [go]);
 
   const handleHoverLeave = useCallback(() => {
     hoveredRef.current = false;
+    hoverArmedRef.current = true;
     window.sideNotch?.setMouseIgnore(true);
     if (pinnedRef.current || focusedRef.current || draggingRef.current) return;
     if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
@@ -440,10 +516,31 @@ export default function App() {
     if (currentToast && !currentToast.sticky) scheduleToastClose(currentToast);
   }, [scheduleToastClose]);
 
+  const collapseToCompact = useCallback(() => {
+    if (draggingRef.current) return;
+    const current = motionRef.current;
+    if (current === "compact") return;
+    hoverArmedRef.current = false;
+    hoveredRef.current = false;
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+    pinnedRef.current = false;
+    setPinned(false);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    window.sideNotch?.setMouseIgnore(true);
+    go("collapsing");
+  }, [go]);
+
   const handleClick = useCallback(() => {
     if (draggingRef.current) return;
     const current = motionRef.current;
     if (current === "compact" || current === "collapsing") {
+      pinnedRef.current = true;
+      setPinned(true);
+      visitSlotsRef.current = panelSources(sourcesRef.current).length;
+      go("pinning");
       return;
     }
     if (current === "toast" || current === "toasting") {
@@ -452,7 +549,7 @@ export default function App() {
       toastRef.current = null;
       pinnedRef.current = true;
       setPinned(true);
-      visitSlotsRef.current = Math.max(1, panelSources(sourcesRef.current).length);
+      visitSlotsRef.current = panelSources(sourcesRef.current).length;
       go("pinning");
       return;
     }
@@ -462,21 +559,8 @@ export default function App() {
       go("pinning");
       return;
     }
-    pinnedRef.current = false;
-    setPinned(false);
-    const queuedToast = toastRef.current;
-    if (queuedToast) {
-      visitSlotsRef.current = Math.min(4, Math.max(1, queuedToast.events.length));
-      go("toasting");
-      scheduleToastClose(queuedToast);
-      return;
-    }
-    if (hoveredRef.current) {
-      go("unpinning");
-    } else {
-      go("collapsing");
-    }
-  }, [go, scheduleToastClose]);
+    collapseToCompact();
+  }, [collapseToCompact, go]);
 
   useEffect(() => {
     const lifecycle = ++lifecycleRef.current;
@@ -492,6 +576,7 @@ export default function App() {
   }, []);
 
   const visual = pillMode(motion);
+  const idle = overallStatus(slots) === "idle";
   const shellLabel =
     visual === "expanded"
       ? "Lista de fontes. Clique para recolher."
@@ -501,7 +586,7 @@ export default function App() {
           ? toast
             ? `${toast.events.length} evento${toast.events.length === 1 ? "" : "s"} de atividade`
             : "Notificação"
-          : tooltip;
+          : `${tooltip}. Clique para expandir.`;
 
   return (
     <NotchShell
@@ -510,6 +595,7 @@ export default function App() {
       pillMode={visual}
       contentMode={visual}
       pinned={pinned}
+      idle={idle}
       toast={toast}
       pillSize={pillSize}
       ariaLabel={shellLabel}
@@ -526,8 +612,8 @@ export default function App() {
         layout={isHorizontalDock(dock) ? "island" : "side"}
         tooltip={tooltip}
       />
-      <PreviewView sources={panels} />
-      <ExpandedView sources={panels} />
+      <PreviewView sources={panels} onExpand={handleClick} onCollapse={collapseToCompact} />
+      <ExpandedView sources={panels} onCollapse={collapseToCompact} />
     </NotchShell>
   );
 }

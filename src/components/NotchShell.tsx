@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { NotchToast, ViewMode, WidgetDock } from "../../shared/types";
-import { MORPH, morphKind, type MotionState } from "../lib/motion";
+import { MORPH, morphKind, type MotionState } from "../../shared/motion";
 import { IslandToast } from "./IslandToast";
 
 interface NotchShellProps {
@@ -16,6 +16,7 @@ interface NotchShellProps {
   pillMode: ViewMode;
   contentMode: ViewMode;
   pinned: boolean;
+  idle: boolean;
   toast: NotchToast | null;
   pillSize: { width: number; height: number };
   ariaLabel: string;
@@ -50,8 +51,9 @@ function layersFromChildren(children: ReactNode): {
   };
 }
 
-function placementOf(dock: WidgetDock): "island" | "side" | "top" {
+function placementOf(dock: WidgetDock): "island" | "side" | "top" | "corner" {
   if (dock === "top") return "top";
+  if (dock === "bottom-left" || dock === "bottom-right") return "corner";
   if (dock === "left" || dock === "right") return "side";
   return "island";
 }
@@ -63,6 +65,7 @@ export function NotchShell({
   pillMode,
   contentMode,
   pinned,
+  idle,
   toast,
   pillSize,
   ariaLabel,
@@ -130,11 +133,15 @@ export function NotchShell({
     }
   };
 
-  const handleClick = () => {
+  const handleClick = (event: { target: EventTarget | null }) => {
     if (skipClickRef.current) {
       skipClickRef.current = false;
       return;
     }
+    const node = event.target;
+    const element =
+      node instanceof Element ? node : node instanceof Node ? node.parentElement : null;
+    if (element?.closest("[data-no-drag]")) return;
     onClick();
   };
 
@@ -142,7 +149,7 @@ export function NotchShell({
     <div
       className={`notch-root notch-root--${placement} notch-root--${dock} notch-root--${pillMode}${
         kind !== "none" ? " notch-root--morphing" : ""
-      }`}
+      }${idle ? " notch-root--idle" : ""}`}
       style={
         {
           "--pill-w": `${pillSize.width}px`,
@@ -157,13 +164,13 @@ export function NotchShell({
       {placement === "top" ? <div className="notch-aura" aria-hidden="true" /> : null}
       <div
         className={`notch-pill${pinned ? " notch-pill--pinned" : ""}`}
-        role="button"
+        role="region"
         tabIndex={0}
         onClick={handleClick}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            handleClick();
+            handleClick({ target: event.target });
           }
         }}
         onPointerDown={handlePointerDown}
@@ -176,30 +183,37 @@ export function NotchShell({
         onBlur={onBlur}
         aria-label={ariaLabel}
         aria-expanded={pillMode !== "compact"}
-        aria-pressed={pinned}
       >
         <div className="notch-pill__stack">
           <div
             className={`notch-pill__layer${contentMode === "compact" ? " is-active" : ""}`}
             data-layer="compact"
+            aria-hidden={contentMode !== "compact"}
+            inert={contentMode !== "compact" ? true : undefined}
           >
             {layers.compact}
           </div>
           <div
             className={`notch-pill__layer${contentMode === "preview" ? " is-active" : ""}`}
             data-layer="preview"
+            aria-hidden={contentMode !== "preview"}
+            inert={contentMode !== "preview" ? true : undefined}
           >
             {layers.preview}
           </div>
           <div
             className={`notch-pill__layer${contentMode === "expanded" ? " is-active" : ""}`}
             data-layer="expanded"
+            aria-hidden={contentMode !== "expanded"}
+            inert={contentMode !== "expanded" ? true : undefined}
           >
             {layers.expanded}
           </div>
           <div
             className={`notch-pill__layer${contentMode === "toast" ? " is-active" : ""}`}
             data-layer="toast"
+            aria-hidden={contentMode !== "toast"}
+            inert={contentMode !== "toast" ? true : undefined}
           >
             {toast ? <IslandToast toast={toast} /> : null}
           </div>

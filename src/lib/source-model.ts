@@ -1,32 +1,21 @@
-import type { AgentSnapshot, SourceHealth, SourceId, SourceSnapshot } from "../../shared/types";
-import { SOURCE_LABEL, SOURCE_ORDER, SOURCE_TICK, isSourceInUse } from "../../shared/types";
+import type { SourceHealth, SourceId, SourceSnapshot } from "../../shared/types";
+import { SOURCE_LABEL, SOURCE_ORDER, groupAgents, isSourceVisible } from "../../shared/types";
+
+export type { GroupedAgent } from "../../shared/types";
+export { groupAgents };
 
 export type WidgetStatus = "idle" | "processing" | "warning" | "error";
 
-export interface GroupedAgent {
-  parent: AgentSnapshot;
-  children: AgentSnapshot[];
-}
-
 export interface CompactSlot {
   source: SourceId;
-  tick: string;
   label: string;
   status: WidgetStatus;
   kind: "meter" | "count" | "presence";
   percent: number | null;
   count: number;
   live: boolean;
+  liveCount: number;
   detail: string;
-}
-
-export function groupAgents(agents: AgentSnapshot[]): GroupedAgent[] {
-  const parents = agents.filter((agent) => !agent.isSubagent);
-  const subagents = agents.filter((agent) => agent.isSubagent);
-  return parents.map((parent) => ({
-    parent,
-    children: subagents.filter((child) => child.parentComposerId === parent.composerId),
-  }));
 }
 
 export function sourceStatus(source: SourceSnapshot): WidgetStatus {
@@ -57,28 +46,34 @@ function slotFromSource(source: SourceSnapshot): CompactSlot {
 
   let kind: CompactSlot["kind"] = "count";
   if (percent != null && !healthBad) kind = "meter";
-  else if (source.source === "codex") kind = "presence";
+  else if (source.source === "codex" && !healthBad) kind = "presence";
+
+  const liveCount = source.liveProcessCount;
+  let detail: string;
+  if (healthBad) {
+    detail = healthDetail(source.health);
+  } else if (source.source === "codex" && source.agents.length === 0) {
+    detail = `${liveCount} ao vivo`;
+  } else {
+    detail = `${source.agents.length} ativa${source.agents.length === 1 ? "" : "s"}`;
+  }
 
   return {
     source: source.source,
-    tick: SOURCE_TICK[source.source],
     label: SOURCE_LABEL[source.source],
     status,
     kind,
     percent,
     count: source.agents.length,
-    live: source.liveProcessCount > 0,
-    detail: healthBad
-      ? healthDetail(source.health)
-      : source.source === "codex" && source.agents.length === 0
-        ? `${source.liveProcessCount} ao vivo`
-        : `${source.agents.length} ativa${source.agents.length === 1 ? "" : "s"}`,
+    live: liveCount > 0,
+    liveCount,
+    detail,
   };
 }
 
 export function toCompactSlots(sources: SourceSnapshot[]): CompactSlot[] {
   return SOURCE_ORDER.map((id) => sources.find((item) => item.source === id))
-    .filter((source): source is SourceSnapshot => Boolean(source && isSourceInUse(source)))
+    .filter((source): source is SourceSnapshot => Boolean(source && isSourceVisible(source)))
     .map(slotFromSource);
 }
 

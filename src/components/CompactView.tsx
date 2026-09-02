@@ -6,14 +6,13 @@ interface ChannelSlotProps {
 }
 
 function valueLabel(slot: CompactSlot): string {
-  if (slot.status === "error" || (slot.status === "warning" && slot.kind !== "meter")) {
-    return "!";
-  }
+  if (slot.status === "error") return "erro";
+  if (slot.status === "warning" && slot.kind !== "meter") return "atenção";
   if (slot.kind === "meter" && slot.percent != null) {
     return `${Math.round(slot.percent)}%`;
   }
   if (slot.kind === "presence") {
-    return slot.live ? "on" : "–";
+    return slot.liveCount > 0 ? String(slot.liveCount) : "0";
   }
   return String(slot.count);
 }
@@ -35,7 +34,7 @@ export function ChannelSlot({ slot, layout }: ChannelSlotProps) {
       className={`channel-slot channel-slot--${layout} channel-slot--${slot.source} channel-slot--${slot.status}`}
       title={`${slot.label}: ${slot.detail}`}
     >
-      <span className="channel-slot__tick">{slot.tick}</span>
+      <span className="channel-slot__tick">{slot.label}</span>
       <span
         className={`status-indicator status-indicator--${slot.status}${
           slot.status === "idle" && slot.count > 0 ? " status-indicator--active" : ""

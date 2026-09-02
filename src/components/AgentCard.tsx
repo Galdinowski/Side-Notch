@@ -7,13 +7,6 @@ interface AgentCardProps {
   variant?: "default" | "preview";
 }
 
-function formatTokens(percent: number): { used: string; limit: string } {
-  const limit = 200_000;
-  const used = Math.round((percent / 100) * limit);
-  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-  return { used: fmt(used), limit: fmt(limit) };
-}
-
 function shortPath(fullPath: string | null): string {
   if (!fullPath) return "Sem workspace";
   const parts = fullPath.split(/[\\/]/);
@@ -26,7 +19,6 @@ export function AgentCard({
   variant = "default",
 }: AgentCardProps) {
   const percent = agent.contextUsagePercent;
-  const tokens = percent != null ? formatTokens(percent) : null;
   const isPreview = variant === "preview";
   const rounded = percent != null ? Math.round(percent) : null;
 
@@ -46,10 +38,10 @@ export function AgentCard({
           />
           <span className="task-row__name">{agent.name}</span>
           <span className="task-row__percent">
-            {rounded != null ? `${rounded}%` : agent.hasBlockingPendingActions ? "ação" : "live"}
+            {rounded != null ? `${rounded}%` : agent.hasBlockingPendingActions ? "ação" : "ao vivo"}
           </span>
         </div>
-        {percent != null ? <ContextMeter percent={percent} /> : <div className="context-meter context-meter--ghost" />}
+        {percent != null ? <ContextMeter percent={percent} /> : null}
       </article>
     );
   }
@@ -77,13 +69,8 @@ export function AgentCard({
 
       {agent.subtitle ? <p className="agent-card__subtitle">{agent.subtitle}</p> : null}
 
-      {percent != null && tokens ? (
-        <ContextMeter
-          percent={percent}
-          usedLabel={tokens.used}
-          limitLabel={tokens.limit}
-          showLabels
-        />
+      {percent != null ? (
+        <ContextMeter percent={percent} showLabels />
       ) : null}
 
       <div className="agent-card__meta">

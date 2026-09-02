@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
-  --font-ui: "Sora", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --font-data: "Oxanium", "Cascadia Mono", ui-monospace, monospace;
+  --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-data: "Cascadia Mono", "Consolas", ui-monospace, monospace;
   font-family: var(--font-ui);
 
   --ink: #14131a;
@@ -86,6 +86,7 @@ html.browser-preview #root {
   height: 100%;
   display: flex;
   padding: 2px;
+  pointer-events: none;
 }
 
 .notch-root--island {
@@ -96,13 +97,13 @@ html.browser-preview #root {
 .notch-root--side.notch-root--left {
   justify-content: flex-start;
   align-items: flex-start;
-  padding: 2px 6px 2px 0;
+  padding: 2px 5px 2px 1px;
 }
 
 .notch-root--side.notch-root--right {
   justify-content: flex-end;
   align-items: flex-start;
-  padding: 2px 0 2px 6px;
+  padding: 2px 1px 2px 5px;
 }
 
 .notch-pill {
@@ -114,6 +115,7 @@ html.browser-preview #root {
   width: var(--pill-w);
   height: var(--pill-h);
   flex-shrink: 0;
+  pointer-events: auto;
   background:
     linear-gradient(180deg, rgba(243, 237, 223, 0.04), transparent 42%),
     var(--plate);
@@ -135,6 +137,11 @@ html.browser-preview #root {
 
 .notch-root--morphing .notch-pill {
   will-change: width, height;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.notch-root--compact .notch-pill {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -179,12 +186,70 @@ html.browser-preview #root {
   border-radius: var(--radius-pill);
 }
 
+.notch-root--side.notch-root--left .notch-pill {
+  margin-right: auto;
+}
+
+.notch-root--side.notch-root--right .notch-pill {
+  margin-left: auto;
+}
+
 .notch-root--side.notch-root--left.notch-root--compact .notch-pill {
   border-radius: 14px 999px 999px 14px;
 }
 
 .notch-root--side.notch-root--right.notch-root--compact .notch-pill {
   border-radius: 999px 14px 14px 999px;
+}
+
+.notch-root--corner.notch-root--bottom-left {
+  justify-content: flex-start;
+  align-items: flex-end;
+  padding: 5px 5px 1px 1px;
+}
+
+.notch-root--corner.notch-root--bottom-right {
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 5px 1px 1px 5px;
+}
+
+.notch-root--corner.notch-root--bottom-left .notch-pill {
+  margin-right: auto;
+  margin-top: auto;
+}
+
+.notch-root--corner.notch-root--bottom-right .notch-pill {
+  margin-left: auto;
+  margin-top: auto;
+}
+
+.notch-root--corner.notch-root--bottom-left.notch-root--compact .notch-pill {
+  border-radius: 14px 999px 14px 14px;
+}
+
+.notch-root--corner.notch-root--bottom-right.notch-root--compact .notch-pill {
+  border-radius: 999px 14px 14px 14px;
+}
+
+.notch-root--corner.notch-root--bottom-left.notch-root--preview .notch-pill,
+.notch-root--corner.notch-root--bottom-left.notch-root--expanded .notch-pill,
+.notch-root--corner.notch-root--bottom-left.notch-root--toast .notch-pill {
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.notch-root--corner.notch-root--bottom-right.notch-root--preview .notch-pill,
+.notch-root--corner.notch-root--bottom-right.notch-root--expanded .notch-pill,
+.notch-root--corner.notch-root--bottom-right.notch-root--toast .notch-pill {
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+
+.notch-root--bottom-right .channel-slot {
+  animation-name: slot-in-end;
 }
 
 @property --island-glow {
@@ -197,6 +262,9 @@ html.browser-preview #root {
   justify-content: center;
   align-items: flex-start;
   padding: 0 28px 36px;
+}
+
+.notch-root--top:not(.notch-root--idle) {
   animation: island-chroma 8s ease-in-out infinite;
 }
 
@@ -239,6 +307,12 @@ html.browser-preview #root {
   animation: island-breathe 4.4s ease-in-out infinite;
 }
 
+.notch-root--idle .notch-aura,
+.notch-root--idle .dormant-pip,
+.notch-root--idle.notch-root--top {
+  animation: none;
+}
+
 .notch-root--preview .notch-aura,
 .notch-root--expanded .notch-aura,
 .notch-root--toast .notch-aura {
@@ -278,12 +352,14 @@ html.browser-preview #root {
   inset: 0;
   overflow: hidden;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
   transition: opacity var(--content-duration) var(--ease-out) var(--content-delay);
 }
 
 .notch-pill__layer.is-active {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 
@@ -350,8 +426,8 @@ html.browser-preview #root {
 }
 
 .dormant-pip {
-  width: 9px;
-  height: 9px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--ch-cursor);
   opacity: 0.45;
@@ -389,6 +465,17 @@ html.browser-preview #root {
   }
 }
 
+@keyframes slot-in-end {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .channel-slot--island {
   grid-template-columns: auto auto 1fr;
   grid-template-rows: auto 4px;
@@ -396,8 +483,8 @@ html.browser-preview #root {
   column-gap: 5px;
   row-gap: 3px;
   flex: 1 1 0;
-  min-width: 78px;
-  max-width: 104px;
+  min-width: 92px;
+  max-width: 120px;
   padding: 4px 6px 5px;
 }
 
@@ -428,6 +515,10 @@ html.browser-preview #root {
   row-gap: 3px;
   padding: 6px 4px 7px;
   border-top: 1px solid var(--hairline);
+}
+
+.notch-root--right .channel-slot {
+  animation-name: slot-in-end;
 }
 
 .channel-slot--side:first-child {
@@ -461,9 +552,9 @@ html.browser-preview #root {
 
 .channel-slot__tick {
   font-family: var(--font-data);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.02em;
   color: var(--text-secondary);
   line-height: 1;
 }
@@ -655,29 +746,21 @@ html.browser-preview #root {
 
 .source-block__header {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 7px;
   min-width: 0;
 }
 
-.source-block__tick {
-  font-family: var(--font-data);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  color: var(--text-secondary);
-}
-
-.source-block--cursor .source-block__tick {
+.source-block--cursor .source-block__name {
   color: var(--ch-cursor);
 }
 
-.source-block--claude .source-block__tick {
+.source-block--claude .source-block__name {
   color: var(--ch-claude);
 }
 
-.source-block--codex .source-block__tick {
+.source-block--codex .source-block__name {
   color: var(--ch-codex);
 }
 
@@ -906,14 +989,37 @@ html.browser-preview #root {
   background: var(--status-error);
 }
 
+.expanded-view__actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.expanded-view__actions--split .expanded-view__hint {
+  width: auto;
+  flex: 1;
+}
+
 .expanded-view__hint {
+  appearance: none;
   margin: 0;
-  padding-top: 2px;
+  padding: 6px 0 2px;
+  border: 0;
+  background: transparent;
+  width: 100%;
   font-size: 11px;
+  font-family: inherit;
   color: var(--text-tertiary);
   text-align: center;
   flex-shrink: 0;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.expanded-view__hint:hover,
+.expanded-view__hint:focus-visible {
+  color: var(--text-secondary);
 }
 
 .island-toast {
