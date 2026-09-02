@@ -6,12 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.node.json && vite build && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs",
-    "test:notifications": "npm run build && node --test scripts/notifications.test.mjs",
+    "build": "tsc -p tsconfig.node.json && vite build && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs && node scripts/write-icon.mjs",
+    "test": "npm run build && node --test scripts/notifications.test.mjs scripts/overlay-rules.test.mjs scripts/preload-contract.test.mjs scripts/read-agents-numbers.test.mjs",
+    "test:notifications": "npm run test",
     "preview": "vite preview",
-    "postinstall": "node scripts/run-electron.mjs --ensure-only",
+    "postinstall": "node scripts/run-electron.mjs --ensure-only && node scripts/write-icon.mjs",
     "electron:ensure": "node scripts/run-electron.mjs --ensure-only",
-    "electron:dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs && node scripts/run-electron.mjs --launch-only\"",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs && node scripts/write-icon.mjs && node scripts/run-electron.mjs --launch-only\"",
     "electron:build": "npm run build && electron-builder"
   },
   "build": {
@@ -19,6 +20,12 @@
     "productName": "Side-notch",
     "asarUnpack": [
       "scripts/**"
+    ],
+    "files": [
+      "dist",
+      "dist-electron",
+      "scripts/**",
+      "public/**"
     ],
     "directories": {
       "output": "release"
@@ -38,7 +45,6 @@
     "@types/auto-launch": "^5.0.5",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
-    "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "electron": "^34.2.0",
