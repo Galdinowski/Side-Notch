@@ -58,7 +58,20 @@ export interface SourcesPayload {
   capturedAt: number;
 }
 
-export type WidgetDock = "floating" | "left" | "right" | "top";
+export const WIDGET_DOCKS = [
+  "floating",
+  "left",
+  "right",
+  "top",
+  "bottom-left",
+  "bottom-right",
+] as const;
+
+export type WidgetDock = (typeof WIDGET_DOCKS)[number];
+
+export function isWidgetDock(value: string | null | undefined): value is WidgetDock {
+  return (WIDGET_DOCKS as readonly string[]).includes(value ?? "");
+}
 export type ViewMode = "compact" | "preview" | "expanded" | "toast";
 
 export type NotificationKind = "action" | "error" | "completed";
@@ -98,34 +111,66 @@ export const SOURCE_LABEL: Record<SourceId, string> = {
   codex: "Codex",
 };
 
-export const SOURCE_TICK: Record<SourceId, string> = {
-  cursor: "CSR",
-  claude: "CLD",
-  codex: "CDX",
-};
-
 export function isSourceInUse(source: SourceSnapshot): boolean {
   if (source.agents.length > 0) return true;
   if (source.source === "codex" && source.liveProcessCount > 0) return true;
   return false;
 }
 
-export function inUseSources(sources: SourceSnapshot[]): SourceSnapshot[] {
-  return SOURCE_ORDER.map((id) => sources.find((s) => s.source === id)).filter(
-    (s): s is SourceSnapshot => Boolean(s && isSourceInUse(s)),
+export function isSourceVisible(source: SourceSnapshot): boolean {
+  if (isSourceInUse(source)) return true;
+  return source.health.status === "error" || source.health.status === "outdated";
+}
+
+function orderedSources(
+  sources: SourceSnapshot[],
+  predicate: (source: SourceSnapshot) => boolean,
+): SourceSnapshot[] {
+  return SOURCE_ORDER.map((id) => sources.find((item) => item.source === id)).filter(
+    (source): source is SourceSnapshot => Boolean(source && predicate(source)),
   );
 }
 
+export function inUseSources(sources: SourceSnapshot[]): SourceSnapshot[] {
+  return orderedSources(sources, isSourceInUse);
+}
+
+export function visibleSources(sources: SourceSnapshot[]): SourceSnapshot[] {
+  return orderedSources(sources, isSourceVisible);
+}
+
 export function panelSources(sources: SourceSnapshot[]): SourceSnapshot[] {
-  return inUseSources(sources);
+  return visibleSources(sources);
+}
+
+export interface GroupedAgent {
+  parent: AgentSnapshot;
+  children: AgentSnapshot[];
+}
+
+export function groupAgents(agents: AgentSnapshot[]): GroupedAgent[] {
+  const parents = agents.filter((agent) => !agent.isSubagent);
+  const parentIds = new Set(parents.map((parent) => parent.composerId));
+  const subagents = agents.filter((agent) => agent.isSubagent);
+  const grouped = parents.map((parent) => ({
+    parent,
+    children: subagents.filter((child) => child.parentComposerId === parent.composerId),
+  }));
+  for (const orphan of subagents) {
+    if (orphan.parentComposerId && parentIds.has(orphan.parentComposerId)) continue;
+    grouped.push({ parent: orphan, children: [] });
+  }
+  return grouped;
 }
 
 export function healthLine(sources: SourceSnapshot[]): string {
   return SOURCE_ORDER.map((id) => {
     const source = sources.find((s) => s.source === id);
-    if (!source || source.health.status === "missing") return null;
+    if (!source) return null;
     const name = SOURCE_LABEL[id];
     switch (source.health.status) {
+      case "missing":
+        return `${name} ausente`;
       case "outdated":
         return `${name} desatualizado`;
       case "error":

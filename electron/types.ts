@@ -21,10 +21,13 @@ export type {
 export {
   SOURCE_ORDER,
   SOURCE_LABEL,
-  SOURCE_TICK,
   isSourceInUse,
+  isSourceVisible,
+  isWidgetDock,
   inUseSources,
+  visibleSources,
   panelSources,
+  groupAgents,
   healthLine,
 } from "../shared/types.js";
 
