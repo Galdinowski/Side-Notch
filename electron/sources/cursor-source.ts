@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { CursorReader } from "../cursor-reader.js";
 import type { SourceSnapshot } from "../types.js";
-import { mapCursorAgent, type RawCursorAgent } from "./cursor-map.js";
+import { mapCursorAgent } from "./cursor-map.js";
 
 function cursorInstallRoot(): string {
   const appData = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
@@ -41,6 +41,10 @@ function classifyCursorError(message: string): { status: "error" | "missing"; de
 export class CursorSource {
   private readonly reader = new CursorReader();
 
+  dispose(): void {
+    this.reader.dispose();
+  }
+
   async read(): Promise<SourceSnapshot> {
     if (!fs.existsSync(cursorInstallRoot())) {
       return {
@@ -52,7 +56,7 @@ export class CursorSource {
     }
 
     try {
-      const raw = (await this.reader.getActiveAgents()) as RawCursorAgent[];
+      const raw = await this.reader.getActiveAgents();
       return {
         source: "cursor",
         health: { status: "ok" },

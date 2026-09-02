@@ -1,15 +1,10 @@
-import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import type { AgentSnapshot, SourceSnapshot } from "../types.js";
-import { childEnv } from "../which.js";
 
-const execFileAsync = promisify(execFile);
-const CODEX_CMD =
-  /(?:^|[\\/\s"])codex(?:\.cmd|\.exe)?(?:\s|$|")|@openai[\\/]codex/i;
 const ACTIVE_SESSION_LOOKBACK_MS = 2 * 60 * 1000;
+const LOCK_ID = /^([0-9a-f-]{36})\.lock$/i;
 
 interface SessionIndexEntry {
   id?: string;
@@ -26,33 +21,130 @@ interface SessionEvent {
   type?: string;
   payload?: {
     type?: string;
+    session_id?: string;
+    id?: string;
+    cwd?: string;
   };
 }
 
-interface WmiProcess {
-  Name?: string;
-  CommandLine?: string | null;
+export interface SessionFileState {
+  mtimeMs: number;
+  size: number;
+  id: string | null;
+  cwd: string | null;
+  active: boolean;
+  pending: string;
 }
 
-function isCodexProcess(name: string, commandLine: string): boolean {
-  if (/electron/i.test(commandLine) || /side-notch/i.test(commandLine)) return false;
-  if (/^codex(\.exe)?$/i.test(name)) return true;
-  return CODEX_CMD.test(commandLine);
+interface IndexCache {
+  path: string;
+  mtimeMs: number;
+  size: number;
+  names: Map<string, string>;
 }
 
-function parseProcessList(stdout: string): WmiProcess[] {
-  const trimmed = stdout.trim();
-  if (!trimmed) return [];
-  try {
-    const parsed = JSON.parse(trimmed) as WmiProcess | WmiProcess[];
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
-    return [];
+function defaultCodexHome(): string {
+  return process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
+}
+
+export function applyJsonlChunk(chunk: string, state: SessionFileState): void {
+  const text = state.pending + chunk;
+  const lines = text.split(/\r?\n/);
+  state.pending = lines.pop() ?? "";
+
+  for (const line of lines) {
+    if (!line) continue;
+    try {
+      const row = JSON.parse(line) as SessionEvent;
+      if (row.type === "session_meta") {
+        const meta = (row.payload ?? {}) as SessionMeta;
+        state.id = meta.session_id ?? meta.id ?? state.id;
+        state.cwd = meta.cwd ?? state.cwd;
+      }
+      if (row.type === "event_msg" && row.payload?.type === "task_started") {
+        state.active = true;
+      }
+      if (row.type === "event_msg" && row.payload?.type === "task_complete") {
+        state.active = false;
+      }
+    } catch {
+      // Codex appends JSONL while this reader is polling; ignore the unfinished line.
+    }
   }
+}
+
+function emptySessionState(mtimeMs: number, size: number): SessionFileState {
+  return {
+    mtimeMs,
+    size,
+    id: null,
+    cwd: null,
+    active: false,
+    pending: "",
+  };
+}
+
+export function ingestSessionFile(
+  file: string,
+  cache: Map<string, SessionFileState>,
+): SessionFileState | null {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    cache.delete(file);
+    return null;
+  }
+
+  const cached = cache.get(file);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached;
+  }
+
+  if (cached && stat.size > cached.size) {
+    const fd = fs.openSync(file, "r");
+    try {
+      const extra = Buffer.alloc(stat.size - cached.size);
+      fs.readSync(fd, extra, 0, extra.length, cached.size);
+      applyJsonlChunk(extra.toString("utf8"), cached);
+    } finally {
+      fs.closeSync(fd);
+    }
+    cached.mtimeMs = stat.mtimeMs;
+    cached.size = stat.size;
+    return cached;
+  }
+
+  const next = emptySessionState(stat.mtimeMs, stat.size);
+  applyJsonlChunk(fs.readFileSync(file, "utf8"), next);
+  cache.set(file, next);
+  return next;
+}
+
+export function sessionIdFromFile(file: string): string | null {
+  return path.basename(file).match(/([0-9a-f-]{36})\.jsonl$/i)?.[1] ?? null;
+}
+
+export function readLockedSessionIds(codexHome: string): Set<string> {
+  const locksDir = path.join(codexHome, "thread-writer-locks");
+  if (!fs.existsSync(locksDir)) return new Set();
+  return new Set(
+    fs
+      .readdirSync(locksDir)
+      .map((name) => name.match(LOCK_ID)?.[1])
+      .filter((id): id is string => Boolean(id)),
+  );
 }
 
 export class CodexSource {
   private inFlight: Promise<SourceSnapshot> | null = null;
+  private readonly sessionCache = new Map<string, SessionFileState>();
+  private indexCache: IndexCache | null = null;
+  private readonly home: string;
+
+  constructor(home = defaultCodexHome()) {
+    this.home = home;
+  }
 
   read(): Promise<SourceSnapshot> {
     if (this.inFlight) return this.inFlight;
@@ -63,8 +155,7 @@ export class CodexSource {
   }
 
   private async readOnce(): Promise<SourceSnapshot> {
-    const codexHome = process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
-    if (!fs.existsSync(codexHome)) {
+    if (!fs.existsSync(this.home)) {
       return {
         source: "codex",
         health: { status: "missing", detail: "Estado local do Codex nao encontrado" },
@@ -74,35 +165,13 @@ export class CodexSource {
     }
 
     try {
-      const agents = this.readActiveSessions(codexHome);
-      let liveProcessCount = 0;
-
-      // Process enumeration can be denied by Windows policy. Session locks remain usable.
-      try {
-      const { stdout } = await execFileAsync(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          "Get-CimInstance Win32_Process -Filter \"Name='node.exe' OR Name='codex.exe'\" | Select-Object Name,CommandLine | ConvertTo-Json -Compress",
-        ],
-        { windowsHide: true, timeout: 5000, maxBuffer: 8 * 1024 * 1024, env: childEnv() },
-      );
-
-      const processes = parseProcessList(stdout);
-      liveProcessCount = processes.filter((proc) =>
-        isCodexProcess(proc.Name ?? "", proc.CommandLine ?? ""),
-      ).length;
-      } catch {
-        liveProcessCount = 0;
-      }
-
+      const lockedSessionIds = readLockedSessionIds(this.home);
+      const agents = this.readActiveSessions(lockedSessionIds);
       return {
         source: "codex",
         health: { status: "ok" },
         agents,
-        liveProcessCount,
+        liveProcessCount: lockedSessionIds.size,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao ler o Codex";
@@ -115,12 +184,14 @@ export class CodexSource {
     }
   }
 
-  private readActiveSessions(codexHome: string): AgentSnapshot[] {
-    const sessionsDir = path.join(codexHome, "sessions");
-    if (!fs.existsSync(sessionsDir)) return [];
+  private readActiveSessions(lockedSessionIds: Set<string>): AgentSnapshot[] {
+    const sessionsDir = path.join(this.home, "sessions");
+    if (!fs.existsSync(sessionsDir)) {
+      this.sessionCache.clear();
+      return [];
+    }
 
-    const names = this.readSessionNames(path.join(codexHome, "session_index.jsonl"));
-    const lockedSessionIds = this.readLockedSessionIds(codexHome);
+    const names = this.readSessionNames(path.join(this.home, "session_index.jsonl"));
     const newestAllowed = Date.now() - ACTIVE_SESSION_LOOKBACK_MS;
     const files = fs
       .readdirSync(sessionsDir, { recursive: true, withFileTypes: true })
@@ -128,14 +199,19 @@ export class CodexSource {
       .map((entry) => path.join(entry.parentPath, entry.name))
       .map((file) => ({ file, stat: fs.statSync(file) }))
       .filter(({ file, stat }) => {
-        const id = this.sessionIdFromFile(file);
+        const id = sessionIdFromFile(file);
         return stat.mtimeMs >= newestAllowed || (id != null && lockedSessionIds.has(id));
       })
       .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
 
+    const keep = new Set(files.map(({ file }) => file));
+    for (const key of [...this.sessionCache.keys()]) {
+      if (!keep.has(key)) this.sessionCache.delete(key);
+    }
+
     const agents: AgentSnapshot[] = [];
     for (const { file } of files) {
-      const session = this.readSession(file);
+      const session = ingestSessionFile(file, this.sessionCache);
       if (!session?.active || !session.id) continue;
 
       const name = names.get(session.id) || "Sessao Codex";
@@ -147,7 +223,6 @@ export class CodexSource {
         workspacePath: session.cwd ?? null,
         name,
         subtitle: "Executando",
-        // Token events are cumulative request usage, not current context consumption.
         contextUsagePercent: null,
         isRunning: true,
         isSubagent: false,
@@ -161,24 +236,23 @@ export class CodexSource {
     return agents;
   }
 
-  private readLockedSessionIds(codexHome: string): Set<string> {
-    const locksDir = path.join(codexHome, "thread-writer-locks");
-    if (!fs.existsSync(locksDir)) return new Set();
-    return new Set(
-      fs
-        .readdirSync(locksDir)
-        .map((name) => name.match(/^([0-9a-f-]{36})\.lock$/i)?.[1])
-        .filter((id): id is string => Boolean(id)),
-    );
-  }
-
-  private sessionIdFromFile(file: string): string | null {
-    return path.basename(file).match(/([0-9a-f-]{36})\.jsonl$/i)?.[1] ?? null;
-  }
-
   private readSessionNames(indexPath: string): Map<string, string> {
+    if (!fs.existsSync(indexPath)) {
+      this.indexCache = null;
+      return new Map();
+    }
+
+    const stat = fs.statSync(indexPath);
+    if (
+      this.indexCache &&
+      this.indexCache.path === indexPath &&
+      this.indexCache.mtimeMs === stat.mtimeMs &&
+      this.indexCache.size === stat.size
+    ) {
+      return this.indexCache.names;
+    }
+
     const names = new Map<string, string>();
-    if (!fs.existsSync(indexPath)) return names;
     for (const line of fs.readFileSync(indexPath, "utf8").split(/\r?\n/)) {
       try {
         const row = JSON.parse(line) as SessionIndexEntry;
@@ -187,34 +261,12 @@ export class CodexSource {
         // The index can end with a partially written JSON line.
       }
     }
-    return names;
-  }
-
-  private readSession(file: string): {
-    id: string | null;
-    cwd: string | null;
-    active: boolean;
-  } | null {
-    let meta: SessionMeta | null = null;
-    let active = false;
-
-    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-      if (!line) continue;
-      try {
-        const row = JSON.parse(line) as SessionEvent;
-        if (row.type === "session_meta") meta = row.payload as SessionMeta;
-        if (row.type === "event_msg" && row.payload?.type === "task_started") active = true;
-        if (row.type === "event_msg" && row.payload?.type === "task_complete") active = false;
-
-      } catch {
-        // Codex appends JSONL while this reader is polling; ignore the unfinished line.
-      }
-    }
-
-    return {
-      id: meta?.session_id ?? meta?.id ?? null,
-      cwd: meta?.cwd ?? null,
-      active,
+    this.indexCache = {
+      path: indexPath,
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      names,
     };
+    return names;
   }
 }

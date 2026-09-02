@@ -76,6 +76,8 @@ export class ClaudeSource {
   private binary: string | null = null;
   private nextProbeAt = 0;
   private inFlight: Promise<SourceSnapshot> | null = null;
+  private lastOk: SourceSnapshot | null = null;
+  private lastOkAt = 0;
 
   read(): Promise<SourceSnapshot> {
     if (this.inFlight) return this.inFlight;
@@ -87,6 +89,9 @@ export class ClaudeSource {
 
   private async readOnce(): Promise<SourceSnapshot> {
     const now = Date.now();
+    if (this.lastOk && now - this.lastOkAt < 4_000) {
+      return this.lastOk;
+    }
     if (this.capability !== "ok" && now < this.nextProbeAt) {
       return this.cachedFailure();
     }
@@ -136,12 +141,15 @@ export class ClaudeSource {
       this.capability = "ok";
       const rows = parseClaudeJson(stdout);
       const agents = rows.filter(isClaudeActive).map(mapClaudeAgent);
-      return {
+      const snapshot: SourceSnapshot = {
         source: "claude",
         health: { status: "ok" },
         agents,
         liveProcessCount: 0,
       };
+      this.lastOk = snapshot;
+      this.lastOkAt = now;
+      return snapshot;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const stderr =

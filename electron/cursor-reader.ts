@@ -1,13 +1,13 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import type { RawCursorAgent } from "./sources/cursor-map.js";
+import { childEnv } from "./which.js";
 
-const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REQUEST_TIMEOUT_MS = 8000;
 
 function findProjectRoot(startDir: string): string {
   let current = startDir;
@@ -65,36 +65,31 @@ function resolveNodeBinary(): string {
   return "node";
 }
 
-function childEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.ELECTRON_NO_ASAR;
-  delete env.ELECTRON_OVERRIDE_DIST_PATH;
-  delete env.NODE_OPTIONS;
-  env.FORCE_COLOR = "0";
-  return env;
-}
-
-function extractJson(stdout: string): RawCursorAgent[] {
-  const trimmed = stdout.trim();
+function parseAgentsLine(line: string): RawCursorAgent[] {
+  const trimmed = line.trim();
+  let parsed: unknown;
   try {
-    return JSON.parse(trimmed) as RawCursorAgent[];
+    parsed = JSON.parse(trimmed);
   } catch {
-    const start = trimmed.indexOf("[");
-    const end = trimmed.lastIndexOf("]");
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1)) as RawCursorAgent[];
-    }
     throw new Error(`Reader returned non-JSON output: ${trimmed.slice(0, 240)}`);
   }
+
+  if (Array.isArray(parsed)) return parsed as RawCursorAgent[];
+  if (parsed && typeof parsed === "object" && "error" in parsed) {
+    throw new Error(String(parsed.error));
+  }
+  throw new Error(`Reader returned non-JSON output: ${trimmed.slice(0, 240)}`);
 }
 
 export class CursorReader {
   private readonly readAgentsScript: string;
   private readonly nodeBinary: string;
+  private worker: ChildProcessWithoutNullStreams | null = null;
+  private lines: readline.Interface | null = null;
   private inFlight: Promise<RawCursorAgent[]> | null = null;
   private loggedOnce = false;
   private loggedCapture = false;
+  private disposed = false;
 
   constructor() {
     this.readAgentsScript = resolveReadAgentsScript();
@@ -111,44 +106,121 @@ export class CursorReader {
     return this.inFlight;
   }
 
+  dispose(): void {
+    this.disposed = true;
+    this.killWorker();
+  }
+
   private async readOnce(): Promise<RawCursorAgent[]> {
+    try {
+      return await this.requestAgents();
+    } catch (error) {
+      if (this.disposed) throw error;
+      this.killWorker();
+      return await this.requestAgents();
+    }
+  }
+
+  private async requestAgents(): Promise<RawCursorAgent[]> {
     if (!this.loggedOnce) {
       this.loggedOnce = true;
       console.log("[side-notch] reader", this.nodeBinary, this.readAgentsScript);
     }
 
-    try {
-      const { stdout, stderr } = await execFileAsync(
-        this.nodeBinary,
-        [this.readAgentsScript],
-        {
-          windowsHide: true,
-          maxBuffer: 10 * 1024 * 1024,
-          timeout: 8000,
-          env: childEnv(),
-        },
+    const line = await this.requestLine();
+    const agents = parseAgentsLine(line);
+    if (!this.loggedCapture) {
+      this.loggedCapture = true;
+      console.log(
+        `[side-notch] captured ${agents.length} agent(s)`,
+        agents
+          .map((agent) => {
+            const percent = agent.contextUsagePercent;
+            const shown = typeof percent === "number" ? `${Math.round(percent)}%` : "–";
+            return `${agent.name}:${shown}`;
+          })
+          .join(", ") || "(none)",
       );
-
-      if (stderr?.trim()) {
-        console.warn("[side-notch] reader stderr:", stderr.trim().slice(0, 500));
-      }
-
-      const agents = extractJson(stdout);
-      if (!this.loggedCapture) {
-        this.loggedCapture = true;
-        console.log(
-          `[side-notch] captured ${agents.length} agent(s)`,
-          agents.map((a) => `${a.name}:${Math.round(a.contextUsagePercent)}%`).join(", ") || "(none)",
-        );
-      }
-      return agents;
-    } catch (error) {
-      const details =
-        error && typeof error === "object" && "stderr" in error
-          ? String(error.stderr).trim()
-          : "";
-      const message = error instanceof Error ? error.message : "Failed to read Cursor agents";
-      throw new Error(details ? `${message}: ${details}` : message);
     }
+    return agents;
+  }
+
+  private requestLine(): Promise<string> {
+    const { worker, lines } = this.ensureWorker();
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        this.killWorker();
+        reject(new Error("Reader timed out"));
+      }, REQUEST_TIMEOUT_MS);
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        lines.off("line", onLine);
+        worker.off("exit", onExit);
+        worker.off("error", onError);
+      };
+
+      const onLine = (line: string) => {
+        cleanup();
+        resolve(line);
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
+        this.killWorker();
+        reject(new Error(`Reader exited (${code ?? "null"})`));
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        this.killWorker();
+        reject(error);
+      };
+
+      lines.once("line", onLine);
+      worker.once("exit", onExit);
+      worker.once("error", onError);
+      worker.stdin.write("\n");
+    });
+  }
+
+  private ensureWorker(): { worker: ChildProcessWithoutNullStreams; lines: readline.Interface } {
+    if (this.disposed) throw new Error("Reader disposed");
+    if (this.worker && this.lines && this.worker.exitCode == null && !this.worker.killed) {
+      return { worker: this.worker, lines: this.lines };
+    }
+
+    this.killWorker();
+    const worker = spawn(this.nodeBinary, [this.readAgentsScript, "--stdio"], {
+      windowsHide: true,
+      env: childEnv(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const lines = readline.createInterface({ input: worker.stdout });
+    worker.stderr.on("data", (chunk: Buffer) => {
+      const text = String(chunk).trim();
+      if (text) console.warn("[side-notch] reader stderr:", text.slice(0, 500));
+    });
+    const drop = () => {
+      if (this.worker === worker) {
+        this.worker = null;
+        this.lines = null;
+      }
+    };
+    worker.on("exit", drop);
+    worker.on("error", drop);
+    this.worker = worker;
+    this.lines = lines;
+    return { worker, lines };
+  }
+
+  private killWorker(): void {
+    const worker = this.worker;
+    const lines = this.lines;
+    this.worker = null;
+    this.lines = null;
+    lines?.close();
+    if (!worker || worker.killed) return;
+    worker.kill();
   }
 }

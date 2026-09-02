@@ -102,7 +102,7 @@ export class NotificationHub {
           this.event(
             agent.source,
             "action",
-            "Intervencao necessaria",
+            "Intervenção necessária",
             agent.subtitle,
             agent.name,
             agent.id,
@@ -120,7 +120,7 @@ export class NotificationHub {
           this.event(
             next.source,
             "action",
-            "Intervencao necessaria",
+            "Intervenção necessária",
             next.subtitle,
             next.name,
             next.id,
@@ -191,8 +191,8 @@ export class NotificationHub {
         this.event(
           source.source,
           "error",
-          "Erro requer atencao",
-          source.health.detail || `${SOURCE_LABEL[source.source]} nao conseguiu atualizar as tarefas`,
+          "Erro requer atenção",
+          source.health.detail || `${SOURCE_LABEL[source.source]} não conseguiu atualizar as tarefas`,
           undefined,
           source.source,
         ),
@@ -205,7 +205,7 @@ export class NotificationHub {
       this.event(
         agent.source,
         "completed",
-        "Tarefa concluida",
+        "Tarefa concluída",
         agent.name,
         agent.name,
         agent.id,

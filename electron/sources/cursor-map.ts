@@ -6,7 +6,7 @@ export interface RawCursorAgent {
   workspacePath: string | null;
   name: string;
   subtitle: string;
-  contextUsagePercent: number;
+  contextUsagePercent: number | null;
   isRunning: boolean;
   isSubagent: boolean;
   parentComposerId: string | null;
@@ -27,7 +27,7 @@ export function mapCursorAgent(raw: RawCursorAgent): AgentSnapshot {
     subtitle: raw.subtitle,
     contextUsagePercent: Number.isFinite(raw.contextUsagePercent)
       ? raw.contextUsagePercent
-      : 0,
+      : null,
     isRunning: raw.isRunning,
     isSubagent: raw.isSubagent,
     parentComposerId: raw.parentComposerId,
