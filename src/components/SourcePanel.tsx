@@ -27,13 +27,6 @@ function SourceBody({ source, maxItems, variant }: SourceBlockProps) {
 
   const grouped = groupAgents(source.agents);
   if (grouped.length === 0) {
-    if (source.liveProcessCount > 0) {
-      return (
-        <p className="panel-message panel-message--short">
-          {source.liveProcessCount} processo{source.liveProcessCount === 1 ? "" : "s"} ao vivo
-        </p>
-      );
-    }
     return <p className="panel-message panel-message--short">Sem tarefas ativas</p>;
   }
 
@@ -65,9 +58,7 @@ export function SourceBlock({ source, maxItems, variant }: SourceBlockProps) {
   const countLabel =
     source.health.status !== "ok"
       ? healthDetail(source.health)
-      : source.source === "codex" && source.agents.length === 0
-        ? `${source.liveProcessCount} ao vivo`
-        : source.agents.length === 1
+      : source.agents.length === 1
           ? "1 tarefa"
           : `${source.agents.length} tarefas`;
 

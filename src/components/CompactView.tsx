@@ -1,4 +1,11 @@
 import type { CompactSlot } from "../lib/source-model";
+import type { WidgetDock } from "../../shared/types";
+
+function peekSprite(dock: WidgetDock): string {
+  if (dock === "left" || dock === "bottom-left") return "/pet/frames/00.png";
+  if (dock === "right" || dock === "bottom-right") return "/pet/frames/07.png";
+  return "/pet/frames/06.png";
+}
 
 interface ChannelSlotProps {
   slot: CompactSlot;
@@ -53,9 +60,10 @@ interface CompactViewProps {
   slots: CompactSlot[];
   layout: "island" | "side";
   tooltip: string;
+  dock: WidgetDock;
 }
 
-export function CompactView({ slots, layout, tooltip }: CompactViewProps) {
+export function CompactView({ slots, layout, tooltip, dock }: CompactViewProps) {
   if (slots.length === 0) {
     return (
       <div
@@ -63,7 +71,7 @@ export function CompactView({ slots, layout, tooltip }: CompactViewProps) {
         title={tooltip}
         aria-label={tooltip}
       >
-        <span className="dormant-pip" aria-hidden="true" />
+        <img src={peekSprite(dock)} alt="" draggable={false} className="pet-peek" />
       </div>
     );
   }

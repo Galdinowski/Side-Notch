@@ -44,12 +44,12 @@ async function withHome(run) {
   }
 }
 
-test("counts lock files as live process presence", async () => {
+test("ignores leftover lock files without an active turn", async () => {
   await withHome(async (home) => {
     writeLock(home);
     const snapshot = await new CodexSource(home).read();
     assert.equal(snapshot.health.status, "ok");
-    assert.equal(snapshot.liveProcessCount, 1);
+    assert.equal(snapshot.liveProcessCount, 0);
     assert.equal(snapshot.agents.length, 0);
   });
 });
@@ -72,7 +72,7 @@ test("skips unchanged session files and applies a JSONL tail", async () => {
 
     writeLock(home);
     const snapshot = await new CodexSource(home).read();
-    assert.equal(snapshot.liveProcessCount, 1);
+    assert.equal(snapshot.liveProcessCount, 0);
     assert.equal(snapshot.agents.length, 0);
   });
 });
@@ -84,6 +84,6 @@ test("reports an active Codex session from recent JSONL", async () => {
     assert.equal(snapshot.agents.length, 1);
     assert.equal(snapshot.agents[0].id, SESSION_ID);
     assert.equal(snapshot.agents[0].isRunning, true);
-    assert.equal(snapshot.liveProcessCount, 0);
+    assert.equal(snapshot.liveProcessCount, 1);
   });
 });

@@ -611,6 +611,7 @@ export default function App() {
         slots={slots}
         layout={isHorizontalDock(dock) ? "island" : "side"}
         tooltip={tooltip}
+        dock={dock}
       />
       <PreviewView sources={panels} onExpand={handleClick} onCollapse={collapseToCompact} />
       <ExpandedView sources={panels} onCollapse={collapseToCompact} />

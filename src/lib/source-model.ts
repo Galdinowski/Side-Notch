@@ -22,7 +22,7 @@ export function sourceStatus(source: SourceSnapshot): WidgetStatus {
   if (source.health.status === "error" || source.health.status === "missing") return "error";
   if (source.health.status === "outdated") return "warning";
   if (source.agents.some((agent) => agent.hasBlockingPendingActions)) return "warning";
-  if (source.agents.some((agent) => agent.isRunning) || source.liveProcessCount > 0) {
+  if (source.agents.some((agent) => agent.isRunning)) {
     return "processing";
   }
   return "idle";
@@ -46,14 +46,11 @@ function slotFromSource(source: SourceSnapshot): CompactSlot {
 
   let kind: CompactSlot["kind"] = "count";
   if (percent != null && !healthBad) kind = "meter";
-  else if (source.source === "codex" && !healthBad) kind = "presence";
 
-  const liveCount = source.liveProcessCount;
+  const liveCount = source.agents.filter((agent) => agent.isRunning).length;
   let detail: string;
   if (healthBad) {
     detail = healthDetail(source.health);
-  } else if (source.source === "codex" && source.agents.length === 0) {
-    detail = `${liveCount} ao vivo`;
   } else {
     detail = `${source.agents.length} ativa${source.agents.length === 1 ? "" : "s"}`;
   }

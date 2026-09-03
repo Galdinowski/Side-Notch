@@ -171,7 +171,7 @@ export class CodexSource {
         source: "codex",
         health: { status: "ok" },
         agents,
-        liveProcessCount: lockedSessionIds.size,
+        liveProcessCount: agents.length,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao ler o Codex";

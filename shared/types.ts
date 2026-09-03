@@ -112,9 +112,7 @@ export const SOURCE_LABEL: Record<SourceId, string> = {
 };
 
 export function isSourceInUse(source: SourceSnapshot): boolean {
-  if (source.agents.length > 0) return true;
-  if (source.source === "codex" && source.liveProcessCount > 0) return true;
-  return false;
+  return source.agents.length > 0;
 }
 
 export function isSourceVisible(source: SourceSnapshot): boolean {
@@ -176,9 +174,6 @@ export function healthLine(sources: SourceSnapshot[]): string {
       case "error":
         return `${name} erro`;
       default:
-        if (source.source === "codex" && source.liveProcessCount > 0) {
-          return `${name} ${source.liveProcessCount}`;
-        }
         if (source.agents.length > 0) {
           return `${name} ${source.agents.length}`;
         }
