@@ -1,6 +1,7 @@
 {
   "name": "side-notch",
   "version": "0.1.0",
+  "author": "Arthur Galdino",
   "description": "Dynamic Island-style overlay for Cursor agent tasks on Windows",
   "main": "dist-electron/electron/main.js",
   "type": "module",

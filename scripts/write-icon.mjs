@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "public");
-const SIZE = 32;
+const SIZE = 256;
 
 function crc32(buffer) {
   let crc = ~0;
@@ -75,8 +75,9 @@ function icoFromPng(png) {
   header.writeUInt16LE(1, 2);
   header.writeUInt16LE(1, 4);
   const entry = Buffer.alloc(16);
-  entry[0] = SIZE;
-  entry[1] = SIZE;
+  // ICO stores 256 as 0 (width/height are uint8).
+  entry[0] = SIZE >= 256 ? 0 : SIZE;
+  entry[1] = SIZE >= 256 ? 0 : SIZE;
   entry.writeUInt16LE(1, 4);
   entry.writeUInt16LE(32, 6);
   entry.writeUInt32LE(png.length, 8);
