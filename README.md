@@ -45,6 +45,10 @@ Uma fonte entra no widget se:
 
 Ferramenta **não instalada** (`missing`) não ocupa slot; o tooltip da bandeja ainda mostra “ausente”.
 
+Sem tarefas o compacto dissolve a pílula (sem `backdrop-filter`) e deixa o pet na borda com `position: fixed`. Nas laterais e no topo ele atravessa a borda inteira sempre no mesmo sentido; nos cantos inferiores fica enrolado, só a língua se mexe. Recolher encolhe a pílula — não varre a tela.
+
+Toasts de **ATIVIDADE** crescem com o texto empilhado; a mensagem não é cortada pela pílula.
+
 ### Critério Cursor (agente ativo)
 
 Header não arquivado/draft **e** (`isRunning` **ou** `hasBlockingPendingActions`). `isRunning` considera `unfinishedRunAt`, geração em andamento e grouping “live” no `composerData`.
@@ -126,6 +130,6 @@ Side-Notch/
 ├── electron/           # Main, preload CJS, fontes, tray
 ├── shared/             # Tipos, layout, regras de visibilidade
 ├── src/                # Overlay React
-├── scripts/            # read-agents.mjs, preload copy, ícone, testes
-└── public/             # icon.png / icon.ico da bandeja e do instalador
+├── scripts/            # read-agents.mjs, derive-crawl-pose, preload copy, ícone, testes
+└── public/             # ícone da bandeja; frames do pet em public/pet/frames
 ```

@@ -18,7 +18,8 @@
 | read-agents | script | Cursor reader | SQL + regras Cursor | node:sqlite | `scripts/read-agents.mjs` |
 | App | root UI | Renderer | motion + IPC | NotchShell, views, shared | `src/App.tsx` |
 | NotchShell | shell UI | Renderer | drag, layers, a11y | IslandToast, motion | `src/components/NotchShell.tsx` |
-| CompactView | view | Renderer | slots / pip dormante | source-model | `src/components/CompactView.tsx` |
+| CompactView | view | Renderer | slots / pet dormante | SnakePet, source-model | `src/components/CompactView.tsx` |
+| SnakePet | view | Renderer | pose crawl/coil por dock | types | `src/components/SnakePet.tsx` |
 | PreviewView | view | Renderer | painel preview | SourcePanel | `src/components/PreviewView.tsx` |
 | ExpandedView | view | Renderer | painel expanded | SourcePanel | `src/components/ExpandedView.tsx` |
 | SourcePanel | view | Renderer | blocos por fonte | AgentCard, source-model | `src/components/SourcePanel.tsx` |
