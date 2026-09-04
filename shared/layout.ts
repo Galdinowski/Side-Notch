@@ -24,25 +24,47 @@ export function isHorizontalDock(dock: WidgetDock): boolean {
 export function compactSize(
   dock: WidgetDock,
   slotCount = 0,
+  workWidth?: number,
+  workHeight?: number,
 ): { width: number; height: number } {
   const n = Math.max(0, slotCount);
   if (dock === "top") {
-    if (n <= 0) return { width: 176, height: 74 };
+    if (n <= 0) return { width: workWidth ?? 320, height: 110 };
     return { width: 120 + n * 108, height: 84 };
   }
   if (dock === "floating") {
-    if (n <= 0) return { width: 56, height: 48 };
+    if (n <= 0) return { width: 96, height: 64 };
     return { width: 56 + n * 108, height: 48 };
   }
-  if (n <= 0) return { width: 56, height: 56 };
+  if (n <= 0) {
+    // Traversing pets are position:fixed inside a window that already spans the
+    // edge. Corner pets sit still as a coil, so the window stays compact.
+    if (dock === "left" || dock === "right") {
+      return { width: 96, height: workHeight ?? 220 };
+    }
+    return { width: 200, height: 184 };
+  }
   return { width: 96, height: 32 + n * 64 };
 }
 
-export function toastSize(dock: WidgetDock, eventCount = 1): { width: number; height: number } {
+/** IslandToast padding 12+16, header 14, header gap 7, leftover 8 under the last card. */
+const TOAST_CHROME_H = 57;
+/** One event: pad 12, border 2, title 13/1.25, body 12/1.3, copy gap 2. */
+const TOAST_EVENT_H = 48;
+/** Extra body line so a wrapped description still fits instead of clipping. */
+const TOAST_EVENT_WRAP = 16;
+const TOAST_EVENT_GAP = 5;
+
+export function toastStackHeight(eventCount = 1): number {
   const events = Math.min(4, Math.max(1, eventCount));
-  if (dock === "top") return { width: 448, height: 84 + events * 48 };
-  if (isSideDock(dock)) return { width: 320, height: 76 + events * 56 };
-  return { width: 404, height: 72 + events * 48 };
+  return TOAST_CHROME_H + events * (TOAST_EVENT_H + TOAST_EVENT_WRAP) + (events - 1) * TOAST_EVENT_GAP;
+}
+
+export function toastSize(dock: WidgetDock, eventCount = 1): { width: number; height: number } {
+  const height = toastStackHeight(eventCount) + PILL_INSET[dock].y;
+  if (dock === "top") return { width: 448, height };
+  if (isSideDock(dock)) return { width: 320, height };
+  return { width: 404, height };
 }
 
 export function emptyPanelSize(dock: WidgetDock): { width: number; height: number } {
@@ -93,9 +115,10 @@ export function sizeForMode(
   dock: WidgetDock,
   slotCount: number,
   workHeight: number,
+  workWidth?: number,
 ): { width: number; height: number } {
   if (mode === "compact") {
-    return compactSize(dock, slotCount);
+    return compactSize(dock, slotCount, workWidth, workHeight);
   }
   if (mode === "toast") {
     return toastSize(dock, slotCount);
