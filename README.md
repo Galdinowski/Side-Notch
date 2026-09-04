@@ -77,7 +77,13 @@ Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force
 npm run electron:dev
 ```
 
-Testes:
+Testes e gate local (o mesmo que o CI corre antes do merge):
+
+```bash
+npm run ci
+```
+
+Só os testes (depois do build):
 
 ```bash
 npm test
@@ -90,6 +96,57 @@ node scripts/read-agents.mjs
 ```
 
 ---
+
+## GitFlow
+
+### Regras
+
+- `main` e `develop` não recebem push direto, force push nem exclusão.
+- Toda mudança entra por pull request. Merge só com squash ou merge commit.
+- O PR precisa estar atualizado com a branch alvo (`strict` status checks).
+- Os três checks abaixo precisam estar verdes no merge commit — o estado que existiria depois do merge, não só a branch isolada:
+
+| Check | O que valida |
+|---|---|
+| **Branch policy** | A branch de origem segue o GitFlow |
+| **Quality gate** | `npm run typecheck` e `npm test` no Windows / Node 22 |
+| **Windows package** | `npm run electron:build` gera o `.exe` (sem publicar release) |
+
+- PRs para `main` só podem vir de `develop`, `release/*` ou `hotfix/*`.
+- PRs para `develop` só podem vir de `feature/*`, `bugfix/*`, `hotfix/*` ou `release/*`.
+- `feature/*` e `bugfix/*` nascem de `develop`. `hotfix/*` nasce de `main` e volta também para `develop`.
+- O CI sobe o instalador como artifact. Não publica GitHub Release automaticamente.
+
+### Branches
+
+| Branch | Papel | Origem do PR |
+|---|---|---|
+| `main` | produção estável | `develop`, `release/*` ou `hotfix/*` |
+| `develop` | integração | `feature/*`, `bugfix/*`, `hotfix/*` ou `release/*` |
+| `feature/*` | funcionalidade | a partir de `develop` |
+| `bugfix/*` | correção em desenvolvimento | a partir de `develop` |
+| `release/*` | corte de versão | a partir de `develop` |
+| `hotfix/*` | correção urgente de produção | a partir de `main` |
+
+### Fluxo
+
+1. `git checkout develop && git pull`
+2. `git checkout -b feature/minha-mudanca`
+3. Abra o PR para `develop`. Espere Branch policy, Quality gate e Windows package.
+4. Com o CI verde, faça o merge para `develop`.
+5. Para publicar, abra PR de `develop` para `main`. Só então a produção avança.
+
+Hotfix: `hotfix/...` a partir de `main`, PR para `main` e depois de volta para `develop`.
+
+### Ruleset no GitHub
+
+O Actions sozinho não bloqueia push direto. Em **Settings → Rules → Rulesets**, crie **GitFlow protection** em `main` e `develop`:
+
+- Bloquear exclusão da branch
+- Bloquear force push
+- Exigir pull request (0 aprovações; métodos: merge e squash)
+- Exigir que a branch esteja em dia com o alvo
+- Checks obrigatórios: `Quality gate`, `Windows package`, `Branch policy`
 
 ## Build
 
