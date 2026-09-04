@@ -64,6 +64,7 @@ let loggedHealth = false;
 let ignoreMoved = false;
 let compactAnchor = { x: 0, y: 0 };
 let visitSlotCount = 1;
+let compactPresentationSlotCount: number | null = null;
 
 const isDev = !app.isPackaged;
 const POLL_IDLE_MS = 6000;
@@ -131,7 +132,9 @@ function panelCount(): number {
 }
 
 function slotCount(mode: ViewMode = currentMode): number {
-  if (mode === "compact") return compactSlotCount();
+  if (mode === "compact") {
+    return compactPresentationSlotCount ?? compactSlotCount();
+  }
   return visitSlotCount;
 }
 
@@ -165,10 +168,11 @@ function rememberAnchorFromBounds(
   bounds: Electron.Rectangle,
   dock: WidgetDock,
 ): void {
+  const work = workAreaAtRect(bounds);
   compactAnchor = compactAnchorFromBounds(
     bounds,
     dock,
-    compactSize(dock, compactSlotCount()),
+    compactSize(dock, slotCount("compact"), work.width, work.height),
   );
 }
 
@@ -178,7 +182,7 @@ function positionForSize(
   work: Electron.Rectangle,
   options?: { center?: boolean },
 ): { x: number; y: number } {
-  const fallback = compactSize(dock, compactSlotCount());
+  const fallback = compactSize(dock, slotCount("compact"), work.width, work.height);
   const prevSize = {
     width: lastAppliedSize.width > 0 ? lastAppliedSize.width : fallback.width,
     height: lastAppliedSize.height > 0 ? lastAppliedSize.height : fallback.height,
@@ -198,7 +202,7 @@ function applyBounds(
   const work = options?.center
     ? screen.getPrimaryDisplay().workArea
     : workAreaForWindow();
-  const size = sizeForMode(mode, dock, slotCount(mode), work.height);
+  const size = sizeForMode(mode, dock, slotCount(mode), work.height, work.width);
   const current = mainWindow.getBounds();
   const { x, y } = positionForSize(size, dock, work, options);
 
@@ -242,7 +246,7 @@ function setDock(
 
   if (!options?.center && (dock === "top" || isCornerDock(dock))) {
     const work = workAreaForWindow();
-    const size = sizeForMode(currentMode, dock, slotCount(), work.height);
+    const size = sizeForMode(currentMode, dock, slotCount(), work.height, work.width);
     compactAnchor = dockedPosition(size, dock, work, compactAnchor, size);
   }
 
@@ -252,6 +256,9 @@ function setDock(
 function commitMode(mode: ViewMode, options?: CommitBoundsOptions): WindowRect {
   currentMode = mode;
   if (mode === "compact") {
+    if (options?.slotCount != null) {
+      compactPresentationSlotCount = Math.max(0, options.slotCount);
+    }
     visitSlotCount = panelCount();
   } else if (options?.slotCount != null) {
     visitSlotCount = Math.max(0, options.slotCount);
@@ -346,7 +353,7 @@ function createWindow(): void {
     storedX != null && storedY != null
       ? workAreaAtPoint(storedX, storedY)
       : screen.getPrimaryDisplay().workArea;
-  const size = compactSize(dock, 0);
+  const size = compactSize(dock, 0, work.width, work.height);
   visitSlotCount = 1;
 
   let x: number;
@@ -465,7 +472,14 @@ async function collectSources(): Promise<SourcesPayload> {
   sendToRenderer("sources:update", payload);
   notifications.ingest(sources, store.store);
   if (currentMode === "compact" && Date.now() >= ignoreMovedUntil && !ignoreMoved) {
-    const nextSize = sizeForMode("compact", getDock(), compactSlotCount(), workAreaForWindow().height);
+    const work = workAreaForWindow();
+    const nextSize = sizeForMode(
+      "compact",
+      getDock(),
+      slotCount("compact"),
+      work.height,
+      work.width,
+    );
     if (
       nextSize.width !== lastAppliedSize.width ||
       nextSize.height !== lastAppliedSize.height
