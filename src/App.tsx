@@ -6,7 +6,7 @@ import { ExpandedView } from "./components/ExpandedView";
 import type { AgentSnapshot, AppSettings, NotchToast, SourceId, SourcesPayload, ViewMode, WidgetDock } from "../shared/types";
 import { healthLine, isWidgetDock, panelSources, visibleSources } from "../shared/types";
 import { compactSize, isHorizontalDock, pillSizeForWindow, sizeForMode } from "../shared/layout";
-import { overallStatus, toCompactSlots } from "./lib/source-model";
+import { overallStatus, toCompactSlots, type CompactSlot } from "./lib/source-model";
 import {
   MORPH,
   morphDuration,
@@ -21,6 +21,14 @@ const NOTIFICATION_PRIORITY = {
   error: 1,
   completed: 2,
 } as const;
+
+const PET_WRAP_MS = 1100;
+
+interface CompactPresentation {
+  slots: CompactSlot[];
+  petVisible: boolean;
+  wrapping: boolean;
+}
 
 function workHeight(): number {
   return window.screen.availHeight || 1080;
@@ -104,6 +112,7 @@ export default function App() {
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const morphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const petWrapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRef = useRef<NotchToast | null>(null);
   const payloadKeyRef = useRef("");
   const sourcesRef = useRef<SourcesPayload["sources"]>([]);
@@ -115,29 +124,108 @@ export default function App() {
   dockRef.current = dock;
   const panels = useMemo(() => panelSources(sources), [sources]);
   const slots = useMemo(() => toCompactSlots(sources), [sources]);
-  compactSlotsRef.current = slots.length;
+  const sourcesLoaded = payload !== null;
+  const agentsStopped =
+    sourcesLoaded && (slots.length === 0 || slots.every((slot) => slot.status === "idle"));
+  const [compactPresentation, setCompactPresentation] = useState<CompactPresentation>({
+    slots: [],
+    petVisible: false,
+    wrapping: false,
+  });
+  const hadActiveAgentsRef = useRef(false);
+  compactSlotsRef.current = compactPresentation.slots.length;
   const tooltip = useMemo(
     () => (sources.length ? healthLine(sources) : "Side-notch"),
     [sources],
   );
 
+  useEffect(() => {
+    if (!sourcesLoaded) {
+      setCompactPresentation({
+        slots: [],
+        petVisible: false,
+        wrapping: false,
+      });
+      return;
+    }
+
+    if (!agentsStopped) {
+      hadActiveAgentsRef.current = true;
+      if (petWrapTimerRef.current) {
+        clearTimeout(petWrapTimerRef.current);
+        petWrapTimerRef.current = null;
+      }
+      setCompactPresentation({
+        slots,
+        petVisible: false,
+        wrapping: false,
+      });
+      return;
+    }
+
+    window.sideNotch?.setMouseIgnore(true);
+
+    if (hadActiveAgentsRef.current) {
+      hadActiveAgentsRef.current = false;
+      setCompactPresentation((current) => ({
+        slots: current.slots.length > 0 ? current.slots : slots,
+        petVisible: true,
+        wrapping: true,
+      }));
+      const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : PET_WRAP_MS;
+      petWrapTimerRef.current = setTimeout(() => {
+        petWrapTimerRef.current = null;
+        setCompactPresentation({
+          slots: [],
+          petVisible: true,
+          wrapping: false,
+        });
+      }, duration);
+      return;
+    }
+
+    if (!petWrapTimerRef.current) {
+      setCompactPresentation({
+        slots: [],
+        petVisible: true,
+        wrapping: false,
+      });
+    }
+  }, [agentsStopped, slots, sourcesLoaded]);
+
+  // The dormant pet spans its edge through a fixed-position element, so the pill
+  // never needs the work area: sizing it from the compact chrome keeps collapsing
+  // a shrink instead of a sweep to screen width.
   const syncPill = useCallback((mode: ViewMode, nextDock: WidgetDock, slotsForVisit: number) => {
-    const windowSize = sizeForMode(mode, nextDock, slotsForVisit, workHeight());
+    const windowSize =
+      mode === "compact"
+        ? compactSize(nextDock, slotsForVisit)
+        : sizeForMode(mode, nextDock, slotsForVisit, workHeight());
     setPillSize(pillSizeForWindow(windowSize, nextDock));
   }, []);
 
-  const commitWindow = useCallback((mode: ViewMode, gen: number) => {
-    if (!window.sideNotch) return;
-    void window.sideNotch
-      .commitBounds(mode, { slotCount: visitSlotsRef.current })
-      .then((rect) => {
-        if (gen !== boundsGenRef.current) return;
-        setPillSize(pillSizeForWindow(rect, dockRef.current));
-      })
-      .catch((error: unknown) => {
-        console.error("[side-notch] failed to commit bounds", error);
-      });
-  }, []);
+  const commitWindow = useCallback(
+    (mode: ViewMode, gen: number) => {
+      if (!window.sideNotch) return;
+      const slots = mode === "compact" ? compactSlotsRef.current : visitSlotsRef.current;
+      void window.sideNotch
+        .commitBounds(mode, { slotCount: slots })
+        .then((rect) => {
+          if (gen !== boundsGenRef.current) return;
+          if (mode === "compact") {
+            syncPill(mode, dockRef.current, slots);
+            return;
+          }
+          setPillSize(pillSizeForWindow(rect, dockRef.current));
+        })
+        .catch((error: unknown) => {
+          console.error("[side-notch] failed to commit bounds", error);
+        });
+    },
+    [syncPill],
+  );
 
   const go = useCallback(
     (next: MotionState) => {
@@ -371,9 +459,17 @@ export default function App() {
     if (window.sideNotch) return;
     const params = new URLSearchParams(window.location.search);
     const previewDock = params.get("dock");
-    if (previewDock === "left" || previewDock === "right" || params.get("demo") === "agents") {
-      setPayload(demoAgentsPayload());
+    const demo = params.get("demo");
+    if (demo === "toast" || demo === "grouped" || demo === "completed") return;
+    if (demo === "dormant") {
+      setPayload({ capturedAt: Date.now(), sources: [] });
+      return;
     }
+    if (previewDock === "left" || previewDock === "right" || demo === "agents") {
+      setPayload(demoAgentsPayload());
+      return;
+    }
+    setPayload({ capturedAt: Date.now(), sources: [] });
   }, []);
 
   useEffect(() => {
@@ -410,16 +506,35 @@ export default function App() {
                 createdAt: now + 2,
               },
             ]
-          : [
-              {
-                id: `demo-${demo}`,
-                source: demo === "completed" ? "codex" : "cursor",
-                kind: demo === "completed" ? "completed" : "action",
-                title: demo === "completed" ? "Tarefa concluída" : "Intervenção necessária",
-                body: demo === "completed" ? "Análise do projeto" : "Precisa da sua ação",
-                createdAt: now,
-              },
-            ],
+          : demo === "completed"
+            ? [
+                {
+                  id: "demo-completed-a",
+                  source: "codex",
+                  kind: "completed",
+                  title: "Tarefa concluída",
+                  body: "Code review analysis",
+                  createdAt: now,
+                },
+                {
+                  id: "demo-completed-b",
+                  source: "claude",
+                  kind: "completed",
+                  title: "Tarefa concluída",
+                  body: "Side snake upward crossing",
+                  createdAt: now + 1,
+                },
+              ]
+            : [
+                {
+                  id: `demo-${demo}`,
+                  source: "cursor",
+                  kind: "action",
+                  title: "Intervenção necessária",
+                  body: "Precisa da sua ação",
+                  createdAt: now,
+                },
+              ],
       sticky: demo !== "completed",
     };
     toastRef.current = demoToast;
@@ -431,13 +546,17 @@ export default function App() {
 
   useEffect(() => {
     const mode = pillMode(motion);
-    const count = slotCountForPill(mode, slots.length, visitSlotsRef.current);
+    const count = slotCountForPill(
+      mode,
+      compactPresentation.slots.length,
+      visitSlotsRef.current,
+    );
     syncPill(mode, dock, count);
     if (motion !== "compact") return;
     if (motionRef.current !== "compact") return;
     const gen = ++boundsGenRef.current;
     commitWindow("compact", gen);
-  }, [slots.length, dock, motion, commitWindow, syncPill]);
+  }, [compactPresentation.slots.length, dock, motion, commitWindow, syncPill]);
 
   const handleHoverEnter = useCallback(() => {
     hoveredRef.current = true;
@@ -571,6 +690,7 @@ export default function App() {
         if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
         if (morphTimerRef.current) clearTimeout(morphTimerRef.current);
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        if (petWrapTimerRef.current) clearTimeout(petWrapTimerRef.current);
       });
     };
   }, []);
@@ -608,10 +728,12 @@ export default function App() {
       onDragEnd={handleDragEnd}
     >
       <CompactView
-        slots={slots}
+        slots={compactPresentation.slots}
         layout={isHorizontalDock(dock) ? "island" : "side"}
         tooltip={tooltip}
         dock={dock}
+        petVisible={compactPresentation.petVisible}
+        wrapping={compactPresentation.wrapping}
       />
       <PreviewView sources={panels} onExpand={handleClick} onCollapse={collapseToCompact} />
       <ExpandedView sources={panels} onCollapse={collapseToCompact} />
