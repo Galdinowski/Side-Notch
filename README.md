@@ -77,7 +77,13 @@ Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force
 npm run electron:dev
 ```
 
-Testes:
+Testes e gate local (o mesmo que o CI corre antes do merge):
+
+```bash
+npm run ci
+```
+
+Só os testes (depois do build):
 
 ```bash
 npm test
@@ -90,6 +96,31 @@ node scripts/read-agents.mjs
 ```
 
 ---
+
+## GitFlow
+
+Não há push direto para `main`. Toda mudança passa por pull request, e o GitHub Actions precisa ficar verde.
+
+| Branch | Papel | Origem do PR |
+|---|---|---|
+| `main` | produção estável | `develop`, `release/*` ou `hotfix/*` |
+| `develop` | integração | `feature/*`, `bugfix/*`, `hotfix/*` ou `release/*` |
+| `feature/*` | funcionalidade | a partir de `develop` |
+| `bugfix/*` | correção em desenvolvimento | a partir de `develop` |
+| `release/*` | corte de versão | a partir de `develop` |
+| `hotfix/*` | correção urgente de produção | a partir de `main` |
+
+Fluxo normal:
+
+1. `git checkout develop && git pull`
+2. `git checkout -b feature/minha-mudanca`
+3. Abra o PR para `develop`. O CI corre typecheck, testes e o instalador Windows contra o merge commit — o estado que existiria na branch alvo depois do merge.
+4. Com o CI verde, faça o merge para `develop`.
+5. Para publicar, abra PR de `develop` para `main`. Só então a produção avança.
+
+Hotfix: branch `hotfix/...` a partir de `main`, PR para `main` e depois de volta para `develop`.
+
+O CI também sobe o `.exe` do instalador como artifact. Não publica release automaticamente.
 
 ## Build
 
