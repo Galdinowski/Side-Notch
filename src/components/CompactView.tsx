@@ -1,30 +1,32 @@
-import type { CompactSlot } from "../lib/source-model";
 import type { WidgetDock } from "../../shared/types";
-
-function peekSprite(dock: WidgetDock): string {
-  if (dock === "left" || dock === "bottom-left") return "/pet/frames/00.png";
-  if (dock === "right" || dock === "bottom-right") return "/pet/frames/07.png";
-  return "/pet/frames/06.png";
-}
+import type { CompactSlot } from "../lib/source-model";
+import { SnakePet } from "./SnakePet";
 
 interface ChannelSlotProps {
   slot: CompactSlot;
   layout: "island" | "side";
 }
 
-function valueLabel(slot: CompactSlot): string {
-  if (slot.status === "error") return "erro";
-  if (slot.status === "warning" && slot.kind !== "meter") return "atenção";
+/**
+ * A reading or a state word. Only the reading earns extra size where space is
+ * tight, since a word already carries its own weight and would overflow.
+ */
+function valueLabel(slot: CompactSlot): { text: string; numeric: boolean } {
+  if (slot.status === "error") return { text: "erro", numeric: false };
+  if (slot.status === "warning" && slot.kind !== "meter") {
+    return { text: "atenção", numeric: false };
+  }
   if (slot.kind === "meter" && slot.percent != null) {
-    return `${Math.round(slot.percent)}%`;
+    return { text: `${Math.round(slot.percent)}%`, numeric: true };
   }
   if (slot.kind === "presence") {
-    return slot.liveCount > 0 ? String(slot.liveCount) : "0";
+    return { text: slot.liveCount > 0 ? String(slot.liveCount) : "0", numeric: true };
   }
-  return String(slot.count);
+  return { text: String(slot.count), numeric: true };
 }
 
 export function ChannelSlot({ slot, layout }: ChannelSlotProps) {
+  const value = valueLabel(slot);
   const fill =
     slot.status === "error" || slot.status === "warning"
       ? 100
@@ -48,7 +50,13 @@ export function ChannelSlot({ slot, layout }: ChannelSlotProps) {
         }`}
         aria-hidden="true"
       />
-      <span className="channel-slot__value">{valueLabel(slot)}</span>
+      <span
+        className={`channel-slot__value${
+          value.numeric ? " channel-slot__value--numeric" : ""
+        }`}
+      >
+        {value.text}
+      </span>
       <span className="channel-slot__meter" aria-hidden="true">
         <span className="channel-slot__fill" style={{ width: `${fill}%` }} />
       </span>
@@ -61,27 +69,30 @@ interface CompactViewProps {
   layout: "island" | "side";
   tooltip: string;
   dock: WidgetDock;
+  petVisible?: boolean;
+  wrapping?: boolean;
 }
 
-export function CompactView({ slots, layout, tooltip, dock }: CompactViewProps) {
-  if (slots.length === 0) {
-    return (
-      <div
-        className={`compact-view compact-view--${layout} compact-view--dormant`}
-        title={tooltip}
-        aria-label={tooltip}
-      >
-        <img src={peekSprite(dock)} alt="" draggable={false} className="pet-peek" />
-      </div>
-    );
-  }
+export function CompactView({
+  slots,
+  layout,
+  tooltip,
+  dock,
+  petVisible,
+  wrapping = false,
+}: CompactViewProps) {
+  const dormant = slots.length === 0;
+  const showPet = petVisible ?? dormant;
 
   return (
     <div
-      className={`compact-view compact-view--${layout} compact-view--n${slots.length}`}
+      className={`compact-view compact-view--${layout}${
+        dormant ? " compact-view--dormant" : ""
+      }${wrapping ? " compact-view--pet-wrapping" : ""}`}
       title={tooltip}
       aria-label={tooltip}
     >
+      {showPet ? <SnakePet mood="idle" orientation={dock} wrapping={wrapping} /> : null}
       {slots.map((slot) => (
         <ChannelSlot key={slot.source} slot={slot} layout={layout} />
       ))}
