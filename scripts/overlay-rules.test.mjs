@@ -13,9 +13,12 @@ import {
   compactAnchorFromBounds,
   compactSize,
   emptyPanelSize,
+  PILL_INSET,
   positionForSize,
   resolveDock,
   sizeForMode,
+  toastSize,
+  toastStackHeight,
 } from "../dist-electron/shared/layout.js";
 import {
   isSettledCompact,
@@ -191,6 +194,20 @@ test("bottom-left follows a left taskbar inset", () => {
   assert.equal(pos.y, 1080 - compact.height);
 });
 
+test("top pet spans the work area while active slots keep compact width", () => {
+  assert.deepEqual(compactSize("top", 0, 1920), { width: 1920, height: 110 });
+  assert.deepEqual(compactSize("top", 1, 1920), { width: 228, height: 84 });
+});
+
+test("traversing docks span the edge; dormant corners stay compact for the coil", () => {
+  assert.deepEqual(compactSize("left", 0, 1920, 1040), { width: 96, height: 1040 });
+  assert.deepEqual(compactSize("right", 0, 1920, 1040), { width: 96, height: 1040 });
+  assert.deepEqual(compactSize("bottom-left", 0, 1920, 1040), { width: 200, height: 184 });
+  assert.deepEqual(compactSize("bottom-right", 0, 1920, 1040), { width: 200, height: 184 });
+  assert.deepEqual(compactSize("left", 1, 1920, 1040), { width: 96, height: 96 });
+  assert.deepEqual(compactSize("bottom-right", 1, 1920, 1040), { width: 96, height: 96 });
+});
+
 test("dragging a side dock onto the work area floor becomes a corner dock", () => {
   const work = { x: 0, y: 0, width: 1920, height: 1040 };
   const compact = compactSize("left", 1);
@@ -218,6 +235,23 @@ test("dragging a side dock onto the work area floor becomes a corner dock", () =
     closestSnap({ left: 800, right: 4, top: 400, bottom: 6 }),
     "bottom-right",
   );
+});
+
+test("toast window is tall enough for stacked cards after the dock inset", () => {
+  const stackTwo = toastStackHeight(2);
+  assert.equal(stackTwo, 190);
+
+  const top = toastSize("top", 2);
+  assert.deepEqual(top, { width: 448, height: stackTwo + PILL_INSET.top.y });
+  assert.equal(top.height - PILL_INSET.top.y, stackTwo);
+
+  const floating = toastSize("floating", 2);
+  assert.equal(floating.height - PILL_INSET.floating.y, stackTwo);
+
+  const corner = toastSize("bottom-right", 2);
+  assert.equal(corner.height - PILL_INSET["bottom-right"].y, stackTwo);
+
+  assert.deepEqual(sizeForMode("toast", "top", 2, 1080), top);
 });
 
 test("empty expanded panel is a small card instead of a one-source sheet", () => {
