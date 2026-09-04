@@ -146,6 +146,19 @@ html.browser-preview #root {
   -webkit-backdrop-filter: none;
 }
 
+/*
+ * The dormant pet is the only thing on screen, so the pill dissolves. Dropping
+ * the backdrop-filter matters twice over: it would otherwise blur a band across
+ * the whole edge, and it would trap the pet's fixed positioning.
+ */
+.notch-root--compact .notch-pill:has(.compact-view--dormant) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .notch-pill--pinned {
   border-color: var(--hairline-strong);
 }
@@ -160,7 +173,8 @@ html.browser-preview #root {
 }
 
 .notch-root--preview .notch-pill,
-.notch-root--expanded .notch-pill {
+.notch-root--expanded .notch-pill,
+.notch-root--toast .notch-pill {
   border-radius: var(--radius-panel);
 }
 
@@ -224,12 +238,29 @@ html.browser-preview #root {
   margin-top: auto;
 }
 
+/*
+ * The corner pill swells away from the screen corner and stays tight against it,
+ * so it reads as tucked into the corner rather than floating near it. The
+ * outward radius has to stay well under half the pill: at 999px it resolves to a
+ * full quarter-disc that eats the first glyph of the label.
+ */
 .notch-root--corner.notch-root--bottom-left.notch-root--compact .notch-pill {
-  border-radius: 14px 999px 14px 14px;
+  border-radius: 14px 30px 14px 6px;
 }
 
 .notch-root--corner.notch-root--bottom-right.notch-root--compact .notch-pill {
-  border-radius: 999px 14px 14px 14px;
+  border-radius: 30px 14px 6px 14px;
+}
+
+/* Clear of the outward arc, which reaches ~6px in at the label's baseline. The
+   dormant pet spans the edge on its own and must keep its zero padding. */
+.notch-root--corner.notch-root--compact .compact-view--side:not(.compact-view--dormant) {
+  padding: 12px 10px 11px;
+}
+
+/* The reading is what a glance is for; the channel name is the eyebrow. */
+.notch-root--corner.notch-root--compact .channel-slot__value--numeric {
+  font-size: 15px;
 }
 
 .notch-root--corner.notch-root--bottom-left.notch-root--preview .notch-pill,
@@ -311,6 +342,11 @@ html.browser-preview #root {
 .notch-root--idle .dormant-pip,
 .notch-root--idle.notch-root--top {
   animation: none;
+}
+
+.notch-root--compact:has(.compact-view--dormant) .notch-aura {
+  opacity: 0;
+  box-shadow: none;
 }
 
 .notch-root--preview .notch-aura,
@@ -396,12 +432,32 @@ html.browser-preview #root {
   .channel-slot--processing .channel-slot__fill,
   .dormant-pip,
   .notch-root--top,
-  .notch-aura {
+  .notch-aura,
+  .snake-pet__motion,
+  .snake-pet__slice,
+  .snake-pet__tongue-anchor,
+  .snake-pet__tongue,
+  .snake-pet--wrapping,
+  .compact-view--pet-wrapping .channel-slot {
     animation: none !important;
+    opacity: 0.72;
+    transform: none;
+  }
+
+  .snake-pet__tongue {
+    opacity: 0;
+  }
+
+  /* The columns reassemble into the plain pose, and they overlap by a pixel, so
+     they have to stay fully opaque or every seam would double up. The dimming
+     above is already applied once by their shared parent. */
+  .snake-pet__slice {
+    opacity: 1;
   }
 }
 
 .compact-view {
+  position: relative;
   height: 100%;
   display: flex;
   align-items: stretch;
@@ -423,6 +479,16 @@ html.browser-preview #root {
 
 .compact-view--dormant {
   align-items: center;
+  justify-content: center;
+}
+
+.compact-view--side.compact-view--dormant {
+  padding: 0;
+}
+
+.compact-view > .channel-slot {
+  position: relative;
+  z-index: 1;
 }
 
 .dormant-pip {
@@ -435,12 +501,513 @@ html.browser-preview #root {
   animation: dormant-breathe 3.6s ease-in-out infinite;
 }
 
-.pet-peek {
+.snake-pet {
+  pointer-events: none;
+  z-index: 3;
+  line-height: 0;
+  flex: 0 0 auto;
+}
+
+.snake-pet__motion {
+  position: relative;
   width: 100%;
-  max-height: 72px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+}
+
+.snake-pet__sprite {
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   pointer-events: none;
-  animation: dormant-breathe 3.6s ease-in-out infinite;
+  user-select: none;
+}
+
+/*
+ * Crawl is built from vertical columns of one pose. Each column runs the same
+ * undulation a little later than the one before it, so a wave travels down the
+ * body instead of the sprite sliding as a rigid block. The pose faces left, so
+ * column 0 is the head.
+ *
+ * Crossing is one keyframe: start fully off one end, end fully off the other.
+ * --crawl-span is the edge (100vw / 100vh), --crawl-length is the body box,
+ * --crawl-start / --crawl-end are the translate endpoints, --crawl-face is a
+ * static heading (never flipped mid-cycle). Top and left share the defaults;
+ * the right wall only reverses start/end and faces the other way so the head
+ * still leads bottom → top after the wall rotation.
+ */
+.snake-pet--crawl .snake-pet__motion {
+  --wave-duration: 2.4s;
+  --wave-amp: 5px;
+  --wave-tilt: 5deg;
+  --crawl-length: 100%;
+  --crawl-duration: 19.2s;
+  --crawl-face: 1;
+  --crawl-span: 100vw;
+  --crawl-start: calc(var(--crawl-span) + 24px);
+  --crawl-end: calc(-1 * var(--crawl-length) - 24px);
+  transform-origin: center center;
+  animation: snake-cross var(--crawl-duration) linear infinite;
+}
+
+.snake-pet__slice {
+  position: absolute;
+  inset: 0;
+  --stride: calc(100% / var(--slices));
+  /* 0 at the head, 1 at the tail. */
+  --phase: calc(var(--i) / (var(--slices) - 1));
+  /* A snake steers with its head and pushes with its tail, so the sweep grows
+     toward the back rather than rocking the whole body evenly. */
+  --amp: calc(var(--wave-amp) * (0.1 + 0.9 * var(--phase)));
+  --tilt: calc(var(--wave-tilt) * (0.1 + 0.9 * var(--phase)));
+  /* Columns overlap by a pixel so the tilt below never opens a seam. */
+  clip-path: inset(
+    0 max(0px, calc((var(--slices) - var(--i) - 1) * var(--stride) - 1px)) 0
+      max(0px, calc(var(--i) * var(--stride) - 1px))
+  );
+  /* Pivot each column on itself; a shared origin would turn tilt into drift. */
+  transform-origin: calc((var(--i) + 0.5) * var(--stride)) center;
+  animation: snake-slither var(--wave-duration) linear infinite;
+  /* Every delay is negative so all columns start mid-wave. Later columns are
+     less advanced, which is what sends the wave from head to tail. */
+  animation-delay: calc(
+    var(--i) * var(--wave-duration) / var(--slices) - var(--wave-duration)
+  );
+}
+
+/*
+ * Eight samples of a sine, played linearly: the error against a true sine is
+ * well under a pixel at this amplitude, and it avoids the double-eased stall at
+ * the extremes that a three-stop ease-in-out gives. Tilt runs a quarter period
+ * ahead of the offset because it is the slope of the same wave, and that is
+ * what turns sliding columns into a bending body.
+ */
+@keyframes snake-slither {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(calc(var(--tilt) * -1));
+  }
+  12.5% {
+    transform: translate3d(0, calc(var(--amp) * 0.707), 0)
+      rotate(calc(var(--tilt) * -0.707));
+  }
+  25% {
+    transform: translate3d(0, var(--amp), 0) rotate(0deg);
+  }
+  37.5% {
+    transform: translate3d(0, calc(var(--amp) * 0.707), 0)
+      rotate(calc(var(--tilt) * 0.707));
+  }
+  50% {
+    transform: translate3d(0, 0, 0) rotate(var(--tilt));
+  }
+  62.5% {
+    transform: translate3d(0, calc(var(--amp) * -0.707), 0)
+      rotate(calc(var(--tilt) * 0.707));
+  }
+  75% {
+    transform: translate3d(0, calc(var(--amp) * -1), 0) rotate(0deg);
+  }
+  87.5% {
+    transform: translate3d(0, calc(var(--amp) * -0.707), 0)
+      rotate(calc(var(--tilt) * -0.707));
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotate(calc(var(--tilt) * -1));
+  }
+}
+
+.compact-view--dormant .snake-pet {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: none;
+}
+
+/*
+ * The dormant pet roams the whole screen edge while the pill stays at its
+ * compact size, so it anchors to the window instead of to its container. This
+ * only escapes the pill because the dormant pill drops its backdrop-filter; a
+ * filtered ancestor would capture fixed positioning.
+ */
+.compact-view--dormant .snake-pet--crawl {
+  position: fixed;
+  /* Sized from the pose's own 417x80 proportions, so the body renders long and
+     low along the edge rather than letterboxed inside a squarer box. */
+  width: 276px;
+  height: 96px;
+}
+
+.compact-view--dormant .snake-pet--crawl.snake-pet--from-top {
+  top: 8px;
+  left: 0;
+}
+
+/*
+ * Side edges reuse the horizontal crawl box and rotate it onto the wall, so the
+ * travel axis, the body slices and the tongue all keep working unchanged. The
+ * box is laid out lying down and pivoted from its own top-left corner; the
+ * sprite sits at the local bottom so the belly ends up against the screen edge
+ * in both directions.
+ */
+.compact-view--dormant .snake-pet--crawl.snake-pet--from-left,
+.compact-view--dormant .snake-pet--crawl.snake-pet--from-right {
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.compact-view--dormant .snake-pet--crawl.snake-pet--from-left {
+  transform: translateX(96px) rotate(90deg);
+}
+
+.compact-view--dormant .snake-pet--crawl.snake-pet--from-right {
+  transform: translateY(100vh) rotate(-90deg);
+}
+
+.compact-view--dormant .snake-pet--crawl.snake-pet--from-left .snake-pet__sprite,
+.compact-view--dormant .snake-pet--crawl.snake-pet--from-right .snake-pet__sprite {
+  object-position: center bottom;
+}
+
+/*
+ * Corner docks do not traverse. The coil sits in the compact pill, twice the
+ * old 84px crawl height, grounded in the screen corner.
+ */
+.compact-view--dormant .snake-pet--coil {
+  width: 168px;
+  height: 168px;
+}
+
+.notch-root--bottom-left .compact-view--dormant {
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+
+.notch-root--bottom-right .compact-view--dormant {
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+.compact-view:not(.compact-view--dormant) .snake-pet {
+  position: absolute;
+}
+
+/* Slots are up: the pet steps aside to the outer corner for the wrap beat. */
+.compact-view:not(.compact-view--dormant).compact-view--island .snake-pet--from-center,
+.compact-view:not(.compact-view--dormant).compact-view--side .snake-pet--from-bottom,
+.compact-view:not(.compact-view--dormant).compact-view--island .snake-pet--from-top {
+  left: 2px;
+  bottom: -1px;
+  width: 52px;
+  height: 22px;
+}
+
+.compact-view:not(.compact-view--dormant).compact-view--island .snake-pet--from-top {
+  top: 3px;
+  bottom: auto;
+  width: 112px;
+  height: calc(100% - 6px);
+}
+
+.compact-view:not(.compact-view--dormant).compact-view--side .snake-pet--from-left {
+  left: 0;
+  bottom: 0;
+  width: 28px;
+  height: 52px;
+}
+
+.compact-view:not(.compact-view--dormant).compact-view--side .snake-pet--from-right {
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: 52px;
+}
+
+.snake-pet--from-left .snake-pet__motion {
+  transform-origin: left center;
+}
+
+.snake-pet--from-right .snake-pet__motion {
+  transform-origin: right center;
+}
+
+.snake-pet--from-center .snake-pet__motion,
+.snake-pet--from-bottom .snake-pet__motion {
+  transform-origin: center bottom;
+}
+
+.snake-pet--from-top .snake-pet__motion {
+  transform-origin: center top;
+}
+
+.snake-pet--crawl .snake-pet__motion {
+  transform-origin: center center;
+}
+
+/*
+ * The source art draws the forked tongue as its own piece, so the mouth gets the
+ * real thing instead of a CSS approximation. The anchor copies the head column's
+ * wave exactly, which keeps the tongue rooted in the mouth while the body moves.
+ */
+.snake-pet__tongue-anchor {
+  position: absolute;
+  left: -2%;
+  top: 45%;
+  width: 6%;
+  --amp: calc(var(--wave-amp) * 0.1);
+  --tilt: calc(var(--wave-tilt) * 0.1);
+  animation: snake-slither var(--wave-duration) linear infinite;
+  animation-delay: calc(var(--wave-duration) * -1);
+}
+
+.snake-pet__tongue {
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: 0;
+  /* Retracts into the mouth, which sits at the anchor's right edge. */
+  transform: scaleX(0.15);
+  transform-origin: right center;
+  animation: snake-tongue 2.4s ease-in-out infinite;
+}
+
+/*
+ * 12.png's snout sits on the left edge of the sheet, about 12% down. The
+ * tongue is a child of the motion box so a corner scaleX(-1) keeps it in the
+ * mouth. No slither: the coil does not undulate.
+ */
+.snake-pet--coil .snake-pet__tongue-anchor {
+  left: -14%;
+  top: 9%;
+  width: 16%;
+  animation: none;
+}
+
+.snake-pet--coil .snake-pet__motion--idle,
+.snake-pet--coil .snake-pet__motion--processing,
+.snake-pet--coil .snake-pet__motion--warning,
+.snake-pet--coil .snake-pet__motion--error {
+  animation: none;
+}
+
+.notch-root--bottom-left .snake-pet--coil .snake-pet__motion {
+  transform: scaleX(-1);
+  transform-origin: center bottom;
+}
+
+.compact-view:not(.compact-view--dormant) .snake-pet--coil .snake-pet__tongue-anchor,
+.compact-view:not(.compact-view--dormant) .snake-pet--coil .snake-pet__tongue {
+  animation: none;
+  opacity: 0;
+}
+
+.snake-pet__motion--idle {
+  animation: snake-idle 3.8s ease-in-out infinite;
+}
+
+.snake-pet__motion--processing {
+  animation: snake-processing 2.1s ease-in-out infinite;
+}
+
+.snake-pet__motion--warning {
+  animation: snake-warning 1.55s ease-in-out infinite;
+}
+
+.snake-pet__motion--error {
+  animation: snake-error 1.35s ease-out infinite;
+}
+
+.snake-pet--crawl.snake-pet--from-left .snake-pet__motion {
+  --crawl-span: 100vh;
+}
+
+.snake-pet--crawl.snake-pet--from-right .snake-pet__motion {
+  --crawl-span: 100vh;
+  --crawl-face: -1;
+  --crawl-start: calc(-1 * var(--crawl-length) - 24px);
+  --crawl-end: calc(var(--crawl-span) + 24px);
+}
+
+.snake-pet--crawl .snake-pet__motion--processing {
+  --crawl-duration: 14.4s;
+}
+
+.snake-pet--crawl .snake-pet__motion--warning {
+  --crawl-duration: 12s;
+}
+
+.snake-pet--crawl .snake-pet__motion--error {
+  --crawl-duration: 9.6s;
+}
+
+.snake-pet__motion--processing .snake-pet__tongue {
+  animation-duration: 1.7s;
+}
+
+.snake-pet__motion--warning .snake-pet__tongue {
+  animation-duration: 1.2s;
+}
+
+.snake-pet__motion--error .snake-pet__tongue {
+  animation-duration: 0.9s;
+}
+
+.snake-pet--wrapping .snake-pet__motion {
+  animation: none;
+  opacity: 1;
+}
+
+.snake-pet--wrapping.snake-pet--crawl .snake-pet__motion {
+  transform: none;
+}
+
+.compact-view--pet-wrapping .channel-slot {
+  animation: snake-collapse-popup 1100ms cubic-bezier(0.55, 0, 0.25, 1) both;
+  transform-origin: center;
+}
+
+.compact-view--pet-wrapping.compact-view--side .snake-pet--from-left {
+  animation: snake-wrap-left 1100ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+
+.compact-view--pet-wrapping.compact-view--side .snake-pet--from-right {
+  animation: snake-wrap-right 1100ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+
+.compact-view--pet-wrapping.compact-view--island .snake-pet {
+  animation: snake-wrap-island 1100ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+
+.notch-root--bottom-left .compact-view--pet-wrapping .snake-pet--from-bottom {
+  animation: snake-wrap-left 1100ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+
+.notch-root--bottom-right .compact-view--pet-wrapping .snake-pet--from-bottom {
+  animation: snake-wrap-right 1100ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+
+@keyframes snake-collapse-popup {
+  0%,
+  42% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  68% {
+    opacity: 0.82;
+    transform: scale(0.9, 0.96);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.12, 0.68);
+  }
+}
+
+@keyframes snake-wrap-left {
+  0% {
+    opacity: 0;
+    transform: translate3d(-75%, 0, 0) rotate(-5deg) scale(0.9);
+  }
+  20% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  48% {
+    opacity: 1;
+    transform: translate3d(0, calc(58px - var(--pill-h)), 0) rotate(4deg) scale(1.1);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(calc(var(--pill-w) - 32px), calc(58px - var(--pill-h)), 0)
+      rotate(9deg) scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1.05);
+  }
+}
+
+@keyframes snake-wrap-right {
+  0% {
+    opacity: 0;
+    transform: translate3d(75%, 0, 0) rotate(5deg) scale(0.9);
+  }
+  20% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  48% {
+    opacity: 1;
+    transform: translate3d(0, calc(58px - var(--pill-h)), 0) rotate(-4deg) scale(1.1);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(calc(32px - var(--pill-w)), calc(58px - var(--pill-h)), 0)
+      rotate(-9deg) scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1.05);
+  }
+}
+
+@keyframes snake-wrap-island {
+  0% {
+    opacity: 0;
+    transform: translate3d(-45%, 4px, 0) scale(0.9);
+  }
+  22% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  55% {
+    opacity: 1;
+    transform: translate3d(calc(var(--pill-w) - 120px), 0, 0) scale(1.1);
+  }
+  78% {
+    opacity: 1;
+    transform: translate3d(15px, 5px, 0) scale(1.14);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1.05);
+  }
+}
+
+/*
+ * One-way crossing along the box's own X axis. Top (unrotated) and the rotated
+ * side walls share these stops; docks only change the custom properties.
+ * --crawl-face is constant for the whole cycle, so the head never turns around.
+ */
+@keyframes snake-cross {
+  from {
+    transform: translate3d(var(--crawl-start), 0, 0) scaleX(var(--crawl-face));
+  }
+  to {
+    transform: translate3d(var(--crawl-end), 0, 0) scaleX(var(--crawl-face));
+  }
+}
+
+@keyframes snake-tongue {
+  0%,
+  62%,
+  100% {
+    opacity: 0;
+    transform: scaleX(0.15);
+  }
+  70%,
+  82% {
+    opacity: 0.95;
+    transform: scaleX(1);
+  }
+  88% {
+    opacity: 0.65;
+    transform: scaleX(0.55);
+  }
 }
 
 @keyframes dormant-breathe {
@@ -452,6 +1019,79 @@ html.browser-preview #root {
   50% {
     opacity: 0.7;
     transform: scale(1);
+  }
+}
+
+@keyframes snake-idle {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate3d(0, 2px, 0) scale(0.96);
+  }
+  50% {
+    opacity: 0.92;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes snake-processing {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: translate3d(0, 1px, 0) rotate(0deg) scale(1);
+  }
+  28% {
+    opacity: 1;
+    transform: translate3d(1.5px, -3px, 0) rotate(-2deg) scale(1.04);
+  }
+  58% {
+    opacity: 0.88;
+    transform: translate3d(-1.5px, 2px, 0) rotate(2deg) scale(0.98);
+  }
+  82% {
+    opacity: 0.95;
+    transform: translate3d(0.8px, -1.5px, 0) rotate(-1deg) scale(1.02);
+  }
+}
+
+@keyframes snake-warning {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+  35% {
+    opacity: 1;
+    transform: translate3d(0, -4px, 0) scale(1.08);
+  }
+  70% {
+    opacity: 0.9;
+    transform: translate3d(1.5px, -2px, 0) scale(1.05);
+  }
+}
+
+/* Short flare, then steadier hold while mood stays error */
+@keyframes snake-error {
+  0% {
+    opacity: 0.9;
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+  12% {
+    opacity: 1;
+    transform: translate3d(-3px, -2px, 0) scale(1.1);
+  }
+  22% {
+    opacity: 1;
+    transform: translate3d(3px, -1px, 0) scale(1.06);
+  }
+  34% {
+    opacity: 0.95;
+    transform: translate3d(-2px, -3px, 0) scale(1.08);
+  }
+  50%,
+  100% {
+    opacity: 0.88;
+    transform: translate3d(0, -1.5px, 0) scale(1.04);
   }
 }
 
@@ -1035,7 +1675,7 @@ html.browser-preview #root {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 12px 16px 14px;
+  padding: 12px 16px 16px;
   min-width: 0;
 }
 
@@ -1077,6 +1717,7 @@ html.browser-preview #root {
   align-items: center;
   gap: 9px;
   min-width: 0;
+  flex-shrink: 0;
   padding: 6px 8px;
   border: 1px solid var(--hairline);
   border-radius: 10px;
@@ -1140,6 +1781,7 @@ html.browser-preview #root {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.25;
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -1147,10 +1789,9 @@ html.browser-preview #root {
 .island-toast__body {
   margin: 0;
   font-size: 12px;
+  line-height: 1.3;
   color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .island-toast__more {
