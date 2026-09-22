@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentSnapshot, SourceSnapshot } from "../types.js";
 import { childEnv, which } from "../which.js";
+import { readClaudeContextPercent } from "./claude-context.js";
+import { fetchClaudeQuota } from "./claude-quota.js";
+import { QuotaCache } from "./quota-cache.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,7 +41,8 @@ function mapClaudeAgent(row: ClaudeAgentJson): AgentSnapshot {
     row.state === "blocked" ||
     row.status === "waiting" ||
     row.status === "needs_input";
-  const id = row.id ?? row.sessionId ?? `${row.cwd ?? "claude"}-${row.startedAt ?? 0}`;
+  const id = row.id ?? row.sessionId?.slice(0, 8) ?? `${row.cwd ?? "claude"}-${row.startedAt ?? 0}`;
+  const pid = typeof row.pid === "number" && Number.isInteger(row.pid) && row.pid > 0 ? row.pid : null;
 
   return {
     source: "claude",
@@ -50,14 +54,16 @@ function mapClaudeAgent(row: ClaudeAgentJson): AgentSnapshot {
     subtitle: row.waitingFor
       ? `Aguardando: ${row.waitingFor}`
       : row.state || row.status || "Claude Code",
-    contextUsagePercent: null,
-    isRunning: !blocked && (row.state === "working" || row.status === "active" || Boolean(row.pid)),
+    contextUsagePercent: readClaudeContextPercent(row.cwd, row.sessionId),
+    isRunning: !blocked && (row.state === "working" || row.status === "active" || Boolean(pid)),
     isSubagent: false,
     parentComposerId: null,
     hasBlockingPendingActions: blocked,
     linesAdded: 0,
     linesRemoved: 0,
     filesChanged: 0,
+    pid,
+    attachId: row.kind === "background" && row.id ? row.id : null,
   };
 }
 
@@ -78,12 +84,19 @@ export class ClaudeSource {
   private inFlight: Promise<SourceSnapshot> | null = null;
   private lastOk: SourceSnapshot | null = null;
   private lastOkAt = 0;
+  private readonly quota = new QuotaCache(fetchClaudeQuota);
+
+  private withQuota(snapshot: SourceSnapshot): SourceSnapshot {
+    return { ...snapshot, quota: this.quota.touch() ?? snapshot.quota ?? this.quota.peek() };
+  }
 
   read(): Promise<SourceSnapshot> {
     if (this.inFlight) return this.inFlight;
-    this.inFlight = this.readOnce().finally(() => {
-      this.inFlight = null;
-    });
+    this.inFlight = this.readOnce()
+      .then((snapshot) => this.withQuota(snapshot))
+      .finally(() => {
+        this.inFlight = null;
+      });
     return this.inFlight;
   }
 

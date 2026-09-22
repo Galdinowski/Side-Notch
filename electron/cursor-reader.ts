@@ -96,6 +96,10 @@ export class CursorReader {
     this.nodeBinary = resolveNodeBinary();
   }
 
+  get nodePath(): string {
+    return this.nodeBinary;
+  }
+
   getActiveAgents(): Promise<RawCursorAgent[]> {
     if (this.inFlight) return this.inFlight;
 

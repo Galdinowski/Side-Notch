@@ -92,7 +92,7 @@ export function panelSize(
   const top = dock === "top";
   if (mode === "preview") {
     const width = isSideDock(dock) ? 400 : 428;
-    const height = 92 + slots * 118;
+    const height = 92 + slots * 148;
     const size = { width, height: Math.min(height, workHeight - 16) };
     if (!top) return size;
     return {
@@ -101,7 +101,7 @@ export function panelSize(
     };
   }
   const width = isSideDock(dock) ? 500 : 520;
-  const height = 108 + slots * 168;
+  const height = 108 + slots * 198;
   const size = { width, height: Math.min(height, workHeight - 16) };
   if (!top) return size;
   return {

@@ -16,6 +16,7 @@ export interface CompactSlot {
   live: boolean;
   liveCount: number;
   detail: string;
+  quota?: SourceSnapshot["quota"];
 }
 
 export function sourceStatus(source: SourceSnapshot): WidgetStatus {
@@ -65,6 +66,7 @@ function slotFromSource(source: SourceSnapshot): CompactSlot {
     live: liveCount > 0,
     liveCount,
     detail,
+    quota: source.quota ?? null,
   };
 }
 

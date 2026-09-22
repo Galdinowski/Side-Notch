@@ -1,5 +1,6 @@
 import type { WidgetDock } from "../../shared/types";
 import type { CompactSlot } from "../lib/source-model";
+import { quotaSummary } from "../lib/quota";
 import { SnakePet } from "./SnakePet";
 
 interface ChannelSlotProps {
@@ -38,10 +39,11 @@ export function ChannelSlot({ slot, layout }: ChannelSlotProps) {
             ? 70
             : 8;
 
+  const quotaHint = quotaSummary(slot.quota);
   return (
     <div
       className={`channel-slot channel-slot--${layout} channel-slot--${slot.source} channel-slot--${slot.status}`}
-      title={`${slot.label}: ${slot.detail}`}
+      title={quotaHint ? `${slot.label}: ${slot.detail} · ${quotaHint}` : `${slot.label}: ${slot.detail}`}
     >
       <span className="channel-slot__tick">{slot.label}</span>
       <span
