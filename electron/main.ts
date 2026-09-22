@@ -24,6 +24,7 @@ import {
   sizeForMode,
 } from "./layout.js";
 import { NotificationHub } from "./notifications.js";
+import { openAgent } from "./open-agent.js";
 import { SourceHub } from "./sources/collect.js";
 import type {
   AppSettings,
@@ -730,6 +731,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("sources:refresh", () => pollSources());
+  ipcMain.handle("agent:open", (_event, agent: unknown) => openAgent(agent));
 }
 
 app.commandLine.appendSwitch(

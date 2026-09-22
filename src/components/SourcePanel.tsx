@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { SourceSnapshot } from "../../shared/types";
 import { SOURCE_LABEL } from "../../shared/types";
 import { AgentCard } from "./AgentCard";
+import { QuotaStrip } from "./QuotaStrip";
 import {
   groupAgents,
   healthDetail,
@@ -14,9 +15,10 @@ interface SourceBlockProps {
   source: SourceSnapshot;
   maxItems: number;
   variant: "preview" | "expanded";
+  onOpenAgent?: (agent: SourceSnapshot["agents"][number]) => void;
 }
 
-function SourceBody({ source, maxItems, variant }: SourceBlockProps) {
+function SourceBody({ source, maxItems, variant, onOpenAgent }: SourceBlockProps) {
   if (source.health.status !== "ok") {
     return (
       <p className={`panel-message ${source.health.status === "error" ? "panel-message--error" : ""}`}>
@@ -45,6 +47,7 @@ function SourceBody({ source, maxItems, variant }: SourceBlockProps) {
             agent={parent}
             subagents={children}
             variant={variant === "preview" ? "preview" : "default"}
+            onOpen={onOpenAgent}
           />
         ))}
       </div>
@@ -53,7 +56,7 @@ function SourceBody({ source, maxItems, variant }: SourceBlockProps) {
   );
 }
 
-export function SourceBlock({ source, maxItems, variant }: SourceBlockProps) {
+export function SourceBlock({ source, maxItems, variant, onOpenAgent }: SourceBlockProps) {
   const status: WidgetStatus = sourceStatus(source);
   const countLabel =
     source.health.status !== "ok"
@@ -65,11 +68,16 @@ export function SourceBlock({ source, maxItems, variant }: SourceBlockProps) {
   return (
     <section className={`source-block source-block--${source.source} source-block--${variant}`}>
       <header className="source-block__header">
-        <span className={`status-indicator status-indicator--${status}`} aria-hidden="true" />
-        <span className="source-block__name">{SOURCE_LABEL[source.source]}</span>
-        <span className="source-block__meta">{countLabel}</span>
+        <div className="source-block__title-row">
+          <span className={`status-indicator status-indicator--${status}`} aria-hidden="true" />
+          <span className="source-block__name">{SOURCE_LABEL[source.source]}</span>
+          <span className="source-block__meta">{countLabel}</span>
+        </div>
+        {source.source === "cursor" || source.source === "claude" ? (
+          <QuotaStrip quota={source.quota} tone={source.source} />
+        ) : null}
       </header>
-      <SourceBody source={source} maxItems={maxItems} variant={variant} />
+      <SourceBody source={source} maxItems={maxItems} variant={variant} onOpenAgent={onOpenAgent} />
     </section>
   );
 }
@@ -81,6 +89,7 @@ interface PanelViewProps {
   onHintClick?: () => void;
   collapseHint?: string;
   onCollapse?: () => void;
+  onOpenAgent?: (agent: SourceSnapshot["agents"][number]) => void;
   emptyLabel: string;
 }
 
@@ -91,6 +100,7 @@ export function SourcePanel({
   onHintClick,
   collapseHint,
   onCollapse,
+  onOpenAgent,
   emptyLabel,
 }: PanelViewProps): ReactNode {
   const hasActions = Boolean(hint || collapseHint);
@@ -109,6 +119,7 @@ export function SourcePanel({
               source={source}
               maxItems={variant === "preview" ? 2 : 8}
               variant={variant}
+              onOpenAgent={onOpenAgent}
             />
           ))}
         </div>

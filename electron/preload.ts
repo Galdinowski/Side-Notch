@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  AgentOpenRequest,
   AppSettings,
   CommitBoundsOptions,
   NotchToast,
@@ -25,6 +26,8 @@ contextBridge.exposeInMainWorld("sideNotch", {
     ipcRenderer.send("window:end-drag");
   },
   refreshSources: (): Promise<SourcesPayload> => ipcRenderer.invoke("sources:refresh"),
+  openAgent: (agent: AgentOpenRequest): Promise<{ ok: boolean; detail?: string }> =>
+    ipcRenderer.invoke("agent:open", agent),
   onSourcesUpdate: (callback: (payload: SourcesPayload) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: SourcesPayload) => {
       callback(payload);

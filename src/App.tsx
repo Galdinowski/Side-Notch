@@ -30,6 +30,15 @@ interface CompactPresentation {
   wrapping: boolean;
 }
 
+function isPetClickThrough(motion: MotionState, presentation: CompactPresentation): boolean {
+  return (
+    pillMode(motion) === "compact" &&
+    presentation.petVisible &&
+    presentation.slots.length === 0 &&
+    !presentation.wrapping
+  );
+}
+
 function workHeight(): number {
   return window.screen.availHeight || 1080;
 }
@@ -57,7 +66,7 @@ function demoAgent(source: SourceId, name: string): AgentSnapshot {
     workspacePath: null,
     name,
     subtitle: "Em execução",
-    contextUsagePercent: source === "cursor" ? 42 : null,
+    contextUsagePercent: source === "codex" ? null : 42,
     isRunning: true,
     isSubagent: false,
     parentComposerId: null,
@@ -69,6 +78,8 @@ function demoAgent(source: SourceId, name: string): AgentSnapshot {
 }
 
 function demoAgentsPayload(): SourcesPayload {
+  const weekFromNow = Date.now() + 4 * 24 * 60 * 60 * 1000;
+  const hoursFromNow = Date.now() + 3 * 60 * 60 * 1000;
   return {
     capturedAt: Date.now(),
     sources: [
@@ -77,12 +88,21 @@ function demoAgentsPayload(): SourcesPayload {
         health: { status: "ok" },
         agents: [demoAgent("cursor", "Refactor")],
         liveProcessCount: 0,
+        quota: {
+          windows: [{ id: "plan", label: "Plano", usedPercent: 42, resetsAt: weekFromNow }],
+        },
       },
       {
         source: "claude",
         health: { status: "ok" },
         agents: [demoAgent("claude", "Review")],
         liveProcessCount: 0,
+        quota: {
+          windows: [
+            { id: "session", label: "Janela", usedPercent: 34, resetsAt: hoursFromNow },
+            { id: "week", label: "Total", usedPercent: 61, resetsAt: weekFromNow },
+          ],
+        },
       },
     ],
   };
@@ -133,7 +153,9 @@ export default function App() {
     wrapping: false,
   });
   const hadActiveAgentsRef = useRef(false);
+  const clickThroughRef = useRef(false);
   compactSlotsRef.current = compactPresentation.slots.length;
+  clickThroughRef.current = isPetClickThrough(motion, compactPresentation);
   const tooltip = useMemo(
     () => (sources.length ? healthLine(sources) : "Side-notch"),
     [sources],
@@ -194,6 +216,13 @@ export default function App() {
       });
     }
   }, [agentsStopped, slots, sourcesLoaded]);
+
+  useEffect(() => {
+    if (!isPetClickThrough(motion, compactPresentation)) return;
+    hoveredRef.current = false;
+    focusedRef.current = false;
+    window.sideNotch?.setMouseIgnore(true);
+  }, [motion, compactPresentation]);
 
   // The dormant pet spans its edge through a fixed-position element, so the pill
   // never needs the work area: sizing it from the compact chrome keeps collapsing
@@ -559,6 +588,10 @@ export default function App() {
   }, [compactPresentation.slots.length, dock, motion, commitWindow, syncPill]);
 
   const handleHoverEnter = useCallback(() => {
+    if (clickThroughRef.current) {
+      window.sideNotch?.setMouseIgnore(true);
+      return;
+    }
     hoveredRef.current = true;
     if (leaveTimerRef.current) {
       clearTimeout(leaveTimerRef.current);
@@ -623,6 +656,10 @@ export default function App() {
   }, [go]);
 
   const handleFocus = useCallback(() => {
+    if (clickThroughRef.current) {
+      window.sideNotch?.setMouseIgnore(true);
+      return;
+    }
     focusedRef.current = true;
     window.sideNotch?.setMouseIgnore(false);
   }, []);
@@ -653,7 +690,7 @@ export default function App() {
   }, [go]);
 
   const handleClick = useCallback(() => {
-    if (draggingRef.current) return;
+    if (clickThroughRef.current || draggingRef.current) return;
     const current = motionRef.current;
     if (current === "compact" || current === "collapsing") {
       pinnedRef.current = true;
@@ -680,6 +717,50 @@ export default function App() {
     }
     collapseToCompact();
   }, [collapseToCompact, go]);
+
+  const handleOpenAgent = useCallback((agent: AgentSnapshot) => {
+    if (!window.sideNotch?.openAgent) return;
+    void window.sideNotch
+      .openAgent({
+        source: agent.source,
+        id: agent.id,
+        workspacePath: agent.workspacePath,
+        pid: agent.pid ?? null,
+        name: agent.name,
+        attachId: agent.attachId ?? null,
+      })
+      .catch((error: unknown) => {
+        console.error("[side-notch] failed to open session", error);
+      });
+  }, []);
+
+  const handleOpenToastEvent = useCallback(
+    (event: NotchToast["events"][number]) => {
+      if (!event.taskId) return;
+      const source = sourcesRef.current.find((item) => item.source === event.source);
+      const agent = source?.agents.find((item) => item.id === event.taskId);
+      handleOpenAgent(
+        agent ?? {
+          source: event.source,
+          id: event.taskId,
+          composerId: event.taskId,
+          workspaceId: "",
+          workspacePath: null,
+          name: event.taskName || event.body || event.title,
+          subtitle: event.body,
+          contextUsagePercent: null,
+          isRunning: false,
+          isSubagent: false,
+          parentComposerId: null,
+          hasBlockingPendingActions: event.kind === "action",
+          linesAdded: 0,
+          linesRemoved: 0,
+          filesChanged: 0,
+        },
+      );
+    },
+    [handleOpenAgent],
+  );
 
   useEffect(() => {
     const lifecycle = ++lifecycleRef.current;
@@ -719,11 +800,13 @@ export default function App() {
       toast={toast}
       pillSize={pillSize}
       ariaLabel={shellLabel}
+      clickThrough={clickThroughRef.current}
       onHoverEnter={handleHoverEnter}
       onHoverLeave={handleHoverLeave}
       onFocus={handleFocus}
       onBlur={handleBlur}
       onClick={handleClick}
+      onOpenToastEvent={handleOpenToastEvent}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
@@ -735,8 +818,13 @@ export default function App() {
         petVisible={compactPresentation.petVisible}
         wrapping={compactPresentation.wrapping}
       />
-      <PreviewView sources={panels} onExpand={handleClick} onCollapse={collapseToCompact} />
-      <ExpandedView sources={panels} onCollapse={collapseToCompact} />
+      <PreviewView
+        sources={panels}
+        onExpand={handleClick}
+        onCollapse={collapseToCompact}
+        onOpenAgent={handleOpenAgent}
+      />
+      <ExpandedView sources={panels} onCollapse={collapseToCompact} onOpenAgent={handleOpenAgent} />
     </NotchShell>
   );
 }

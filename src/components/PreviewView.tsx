@@ -5,9 +5,10 @@ interface PreviewViewProps {
   sources: SourceSnapshot[];
   onExpand: () => void;
   onCollapse: () => void;
+  onOpenAgent: (agent: SourceSnapshot["agents"][number]) => void;
 }
 
-export function PreviewView({ sources, onExpand, onCollapse }: PreviewViewProps) {
+export function PreviewView({ sources, onExpand, onCollapse, onOpenAgent }: PreviewViewProps) {
   return (
     <SourcePanel
       sources={sources}
@@ -17,6 +18,7 @@ export function PreviewView({ sources, onExpand, onCollapse }: PreviewViewProps)
       onHintClick={onExpand}
       collapseHint="Recolher"
       onCollapse={onCollapse}
+      onOpenAgent={onOpenAgent}
     />
   );
 }
