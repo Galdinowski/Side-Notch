@@ -16,6 +16,7 @@ const channels = [
   "window:mouse-ignore",
   "window:end-drag",
   "sources:refresh",
+  "agent:open",
   "sources:update",
   "dock:update",
   "view:expand",

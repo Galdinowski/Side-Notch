@@ -5,7 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import type { NotchToast, ViewMode, WidgetDock } from "../../shared/types";
+import type { NotchNotification, NotchToast, ViewMode, WidgetDock } from "../../shared/types";
 import { MORPH, morphKind, type MotionState } from "../../shared/motion";
 import { IslandToast } from "./IslandToast";
 
@@ -20,11 +20,13 @@ interface NotchShellProps {
   toast: NotchToast | null;
   pillSize: { width: number; height: number };
   ariaLabel: string;
+  clickThrough?: boolean;
   onHoverEnter: () => void;
   onHoverLeave: () => void;
   onFocus: () => void;
   onBlur: () => void;
   onClick: () => void;
+  onOpenToastEvent?: (event: NotchNotification) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 }
@@ -69,11 +71,13 @@ export function NotchShell({
   toast,
   pillSize,
   ariaLabel,
+  clickThrough = false,
   onHoverEnter,
   onHoverLeave,
   onFocus,
   onBlur,
   onClick,
+  onOpenToastEvent,
   onDragStart,
   onDragEnd,
 }: NotchShellProps) {
@@ -104,6 +108,7 @@ export function NotchShell({
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (clickThrough) return;
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("[data-no-drag]")) return;
     skipClickRef.current = false;
@@ -165,7 +170,7 @@ export function NotchShell({
       <div
         className={`notch-pill${pinned ? " notch-pill--pinned" : ""}`}
         role="region"
-        tabIndex={0}
+        tabIndex={clickThrough ? -1 : 0}
         onClick={handleClick}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -215,7 +220,7 @@ export function NotchShell({
             aria-hidden={contentMode !== "toast"}
             inert={contentMode !== "toast" ? true : undefined}
           >
-            {toast ? <IslandToast toast={toast} /> : null}
+            {toast ? <IslandToast toast={toast} onOpenEvent={onOpenToastEvent} /> : null}
           </div>
         </div>
         {pinned ? <span className="notch-pin" aria-hidden="true" /> : null}

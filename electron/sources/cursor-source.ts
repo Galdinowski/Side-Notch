@@ -4,6 +4,8 @@ import path from "node:path";
 import { CursorReader } from "../cursor-reader.js";
 import type { SourceSnapshot } from "../types.js";
 import { mapCursorAgent } from "./cursor-map.js";
+import { fetchCursorQuota } from "./cursor-quota.js";
+import { QuotaCache } from "./quota-cache.js";
 
 function cursorInstallRoot(): string {
   const appData = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
@@ -40,6 +42,7 @@ function classifyCursorError(message: string): { status: "error" | "missing"; de
 
 export class CursorSource {
   private readonly reader = new CursorReader();
+  private readonly quota = new QuotaCache(() => fetchCursorQuota(this.reader.nodePath));
 
   dispose(): void {
     this.reader.dispose();
@@ -52,6 +55,7 @@ export class CursorSource {
         health: { status: "missing", detail: "Cursor não instalado" },
         agents: [],
         liveProcessCount: 0,
+        quota: this.quota.touch(),
       };
     }
 
@@ -62,6 +66,7 @@ export class CursorSource {
         health: { status: "ok" },
         agents: raw.map(mapCursorAgent),
         liveProcessCount: 0,
+        quota: this.quota.touch(),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao ler o Cursor";
@@ -70,6 +75,7 @@ export class CursorSource {
         health: classifyCursorError(message),
         agents: [],
         liveProcessCount: 0,
+        quota: this.quota.touch(),
       };
     }
   }

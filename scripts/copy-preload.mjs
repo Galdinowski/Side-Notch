@@ -10,6 +10,7 @@ const to = path.join(toDir, "preload.cjs");
 const required = [
   "window:commit-bounds",
   "sources:refresh",
+  "agent:open",
   "sources:update",
   "view:expand",
   "toast:show",

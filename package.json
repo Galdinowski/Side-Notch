@@ -5,16 +5,22 @@
   "description": "Dynamic Island-style overlay for Cursor agent tasks on Windows",
   "main": "dist-electron/electron/main.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.node.json && vite build && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs && node scripts/write-icon.mjs",
-    "test": "npm run build && node --test scripts/notifications.test.mjs scripts/overlay-rules.test.mjs scripts/preload-contract.test.mjs scripts/read-agents-numbers.test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test": "npm run build && npm run test:unit",
+    "test:unit": "node --test \"scripts/*.test.mjs\"",
     "test:notifications": "npm run test",
+    "ci": "npm run typecheck && npm test",
     "preview": "vite preview",
     "postinstall": "node scripts/run-electron.mjs --ensure-only && node scripts/write-icon.mjs",
     "electron:ensure": "node scripts/run-electron.mjs --ensure-only",
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs && node scripts/write-icon.mjs && node scripts/run-electron.mjs --launch-only\"",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder --publish never"
   },
   "build": {
     "appId": "com.sidenotch.app",

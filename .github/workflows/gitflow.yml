@@ -1,0 +1,56 @@
+name: GitFlow
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+concurrency:
+  group: gitflow-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: Branch policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enforce GitFlow branch names
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          echo "PR ${HEAD} -> ${BASE}"
+
+          allowed_into_main() {
+            [[ "$1" == "develop" || "$1" == hotfix/* || "$1" == release/* ]]
+          }
+
+          allowed_into_develop() {
+            [[ "$1" == feature/* || "$1" == bugfix/* || "$1" == hotfix/* || "$1" == release/* ]]
+          }
+
+          if [[ "${BASE}" == "main" ]]; then
+            if allowed_into_main "${HEAD}"; then
+              echo "Branch policy ok: ${HEAD} can merge into main."
+              exit 0
+            fi
+            echo "::error::PRs into main must come from develop, release/*, or hotfix/*. Got '${HEAD}'."
+            exit 1
+          fi
+
+          if [[ "${BASE}" == "develop" ]]; then
+            if allowed_into_develop "${HEAD}"; then
+              echo "Branch policy ok: ${HEAD} can merge into develop."
+              exit 0
+            fi
+            echo "::error::PRs into develop must come from feature/*, bugfix/*, hotfix/*, or release/*. Got '${HEAD}'."
+            exit 1
+          fi
+
+          echo "::error::Unexpected base branch '${BASE}'."
+          exit 1

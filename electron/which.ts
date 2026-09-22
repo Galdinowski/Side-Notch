@@ -1,5 +1,18 @@
 import { execFile } from "node:child_process";
+import path from "node:path";
 import { promisify } from "node:util";
+
+// where.exe também lista launchers sem extensão (scripts shell), que o Windows
+// não consegue executar: spawn falha com ENOENT.
+const EXECUTABLE_EXTENSIONS = new Set([".exe", ".com", ".cmd", ".bat"]);
+
+export function pickExecutable(lines: string[]): string | null {
+  const candidates = lines.map((entry) => entry.trim()).filter(Boolean);
+  const runnable = candidates.find((entry) =>
+    EXECUTABLE_EXTENSIONS.has(path.extname(entry).toLowerCase()),
+  );
+  return runnable ?? candidates[0] ?? null;
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -20,11 +33,7 @@ export async function which(binary: string): Promise<string | null> {
       timeout: 4000,
       env: childEnv(),
     });
-    const line = stdout
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .find(Boolean);
-    return line ?? null;
+    return pickExecutable(stdout.split(/\r?\n/));
   } catch {
     return null;
   }

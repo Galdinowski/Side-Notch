@@ -44,6 +44,29 @@ export interface AgentSnapshot {
   linesAdded: number;
   linesRemoved: number;
   filesChanged: number;
+  pid?: number | null;
+  /** Job id aceito por `claude attach`; ausente em sessões interativas. */
+  attachId?: string | null;
+}
+
+export interface AgentOpenRequest {
+  source: SourceId;
+  id: string;
+  workspacePath: string | null;
+  pid?: number | null;
+  name?: string;
+  attachId?: string | null;
+}
+
+export interface QuotaWindow {
+  id: string;
+  label: string;
+  usedPercent: number;
+  resetsAt?: number | null;
+}
+
+export interface SourceQuota {
+  windows: QuotaWindow[];
 }
 
 export interface SourceSnapshot {
@@ -51,6 +74,7 @@ export interface SourceSnapshot {
   health: SourceHealth;
   agents: AgentSnapshot[];
   liveProcessCount: number;
+  quota?: SourceQuota | null;
 }
 
 export interface SourcesPayload {
@@ -203,6 +227,7 @@ export interface SideNotchAPI {
   setMouseIgnore: (ignore: boolean) => void;
   endDrag: () => void;
   refreshSources: () => Promise<SourcesPayload>;
+  openAgent: (agent: AgentOpenRequest) => Promise<{ ok: boolean; detail?: string }>;
   onSourcesUpdate: (callback: (payload: SourcesPayload) => void) => () => void;
   onDockChange: (callback: (dock: WidgetDock) => void) => () => void;
   onRequestExpand: (callback: () => void) => () => void;

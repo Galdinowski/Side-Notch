@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("sideNotch", {
     ipcRenderer.send("window:end-drag");
   },
   refreshSources: () => ipcRenderer.invoke("sources:refresh"),
+  openAgent: (agent) => ipcRenderer.invoke("agent:open", agent),
   onSourcesUpdate: (callback) => {
     const listener = (_event, payload) => {
       callback(payload);
